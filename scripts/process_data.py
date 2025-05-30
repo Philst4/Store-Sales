@@ -40,11 +40,11 @@ def run_pipeline():
         holidays_events
     )
     
-    merged = merge_all(main, stores, oil, holidays_events)
     print(main.columns)
     print(stores.columns)
     print(oil.columns)
     print(holidays_events.columns)
+    merged = merge_all(main, stores, oil, holidays_events)
     assert False
 
     # Add 'is_train', 'is_test'
