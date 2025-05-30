@@ -40,14 +40,12 @@ def run_pipeline():
         holidays_events
     )
     
+    merged = merge_all(main, stores, oil, holidays_events)
     print(main.columns)
     print(stores.columns)
     print(oil.columns)
     print(holidays_events.columns)
     assert False
-    
-    
-    merged = merge_all(main, stores, oil, holidays_events)
 
     # Add 'is_train', 'is_test'
     merged['is_train'] = merged['id'].isin(train_ids)
