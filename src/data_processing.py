@@ -101,11 +101,52 @@ def fe_holidays_events(holidays_events):
 def fe_stores(stores):
     return stores
 
+def days_since_15th(date):
+        if date.day >= 15:
+            days_since = date.day - 15
+        else:
+            first_of_month = pd.Timestamp(year=date.year, month=date.month, day=1)
+            last_day_prev_month = first_of_month - pd.offsets.Day(1)
+            days_since = (last_day_prev_month.day - 15) + date.day
+        return days_since
+
+def days_since_last(date):
+    # Get the last day of the current month
+    first_of_month = pd.Timestamp(year=date.year, month=date.month, day=1)
+    last_of_month = (first_of_month + pd.offsets.MonthEnd(1)) - pd.offsets.Day(1)
+    if date == last_of_month:
+        days_since = 0
+    else:
+        days_since = 1 + (date - first_of_month).days
+    return days_since
+
+def fe_oil(oil):
+    # Mostly stuff with days
+    oil = oil.sort_values(by=['date']).copy()
+
+    # Add day of the week, week/weekend
+    oil['dayOfWeek'] = oil['date'].dt.day_name().astype('category')
+    oil['weekend'] = oil['dayOfWeek'].isin(['Saturday, Sunday']).astype('category')
+
+    # Add month
+    oil['Month'] = oil['date'].dt.month.astype('category')
+
+    # Add how many days since last paycheck (from 15th/end of month)
+    oil['DaysSince15th'] = oil['date'].apply(days_since_15th).astype(int)
+    oil['DaysSinceLast'] = oil['date'].apply(days_since_last).astype(int)
+    oil['DaysSincePaycheck'] = oil[['DaysSince15th', 'DaysSinceLast']].apply(lambda x: min(x.iloc[0], x.iloc[1]), axis=1).astype(int)
+
+    # Add oil pct change since previous days, weeks, months, etc.
+    lags = [1, 2, 4, 7, 14, 28, 365]
+    for lag in lags:
+        oil[f'oilPrice_PctChange{lag}'] = oil['dcoilwtico'].pct_change(periods=lag).fillna(0).astype('float')
+    return oil
+
 #### Main data-processing function
 def process_data(main, stores, oil, holidays_events):
     main = fe_main(clean_main(main))
     stores = fe_stores(clean_stores(stores))
-    oil = fe_stores(clean_stores(stores))
+    oil = fe_oil(clean_oil(oil))
     holidays_events = fe_holidays_events(
         clean_holidays_events(
             holidays_events
