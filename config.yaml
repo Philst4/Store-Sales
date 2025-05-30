@@ -1,0 +1,3 @@
+data_paths:
+  raw: "./data/store_sales_data"
+  clean: "./data/clean"
