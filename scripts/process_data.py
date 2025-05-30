@@ -31,7 +31,7 @@ def run_pipeline():
     RAW_DATA_PATH = config['data_paths']['raw']
     CLEAN_DATA_PATH = config['data_paths']['clean']
     
-    train, test, stores, oil, holidays = load_raw_data(RAW_DATA_PATH)
+    train, test, stores, oil, holidays_events = load_raw_data(RAW_DATA_PATH)
     
     main, train_ids, test_ids = combine_train_test(train, test)
     main, stores, oil, holidays_events = process_data(
@@ -40,7 +40,7 @@ def run_pipeline():
         oil, 
         holidays_events
     )
-    merged = merge_all(main, stores, oil, holidays)
+    merged = merge_all(main, stores, oil, holidays_events)
 
     # Add 'is_train', 'is_test'
     merged['is_train'] = merged['id'].isin(train_ids)
