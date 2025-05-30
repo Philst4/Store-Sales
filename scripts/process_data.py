@@ -32,13 +32,6 @@ def run_pipeline():
     CLEAN_DATA_PATH = config['data_paths']['clean']
     
     train, test, stores, oil, holidays_events = load_raw_data(RAW_DATA_PATH)
-    print(train.columns)
-    print(test.columns)
-    print(stores.columns)
-    print(oil.columns)
-    print(holidays_events.columns)
-    assert False
-    
     main, train_ids, test_ids = combine_train_test(train, test)
     main, stores, oil, holidays_events = process_data(
         main,
@@ -46,6 +39,13 @@ def run_pipeline():
         oil, 
         holidays_events
     )
+    
+    print(main.columns)
+    print(stores.columns)
+    print(oil.columns)
+    print(holidays_events.columns)
+    assert False
+    
     
     merged = merge_all(main, stores, oil, holidays_events)
 
