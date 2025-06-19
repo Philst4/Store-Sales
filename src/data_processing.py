@@ -152,7 +152,6 @@ def process_data(main, stores, oil, holidays_events):
             holidays_events
             )
     )
-
     return main, stores, oil, holidays_events
 
 #### DATA-MERGING LOGIC ####
@@ -185,6 +184,9 @@ def fe_merge2(merge2, cols):
 def merge_all(main, stores, oil, holidays_events):
     """
     Intended to be ran after processing the raw dataframes.
+    
+    This may need to be reworked, because it greatly expands
+    the size of the data. A normalized setup may be far better.
     """
     
     # Merge main with stores on 'store_nbr' -> merge1
@@ -203,4 +205,33 @@ def merge_all(main, stores, oil, holidays_events):
     # Merge merge1 with merge2 on 'date' -> merge3
     merge3 = pd.merge(merge1, merge2, on='date', how='left')
     return merge3
+
+def assign_ascending_dates(merged):
+    """
+    Function for assigning ascending dates to the dataframe.
+    
+    Starts from the min date in the dataframe. This function is
+    for diversifying the dates in the dataframe for test modes, 
+    in order to ensure that the program will run as expected in 
+    production.
+    
+    Args:
+    * merged (pd.DataFrame) : The merged dataframe, contains 'date' column
+    
+    Returns:
+    * merged (pd.DataFrame) : The dataframe with ascending dates
+    """
+
+    # Get min date
+    start_date = merged['date'].min()
+    
+    # Assign ascending dates
+    merged = merged.sort_index().copy()
+    merged['date'] = pd.date_range(
+        start=start_date, 
+        periods=len(merged),
+        freq='D'
+    )
+    return merged
+    
 

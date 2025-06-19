@@ -1,3 +1,17 @@
-data_paths:
-  raw: "./data/store_sales_data"
-  clean: "./data/clean"
+test_local:
+  data:
+    raw: "./data/raw/"
+    clean: "./data/clean/"
+  studies_uri: "sqlite:///./optuna_studies.db"
+
+test_cloud:
+  data:
+    raw: ""
+    clean: ""
+  studies_uri: ""
+
+production:
+  data:
+    raw: ""
+    clean: ""
+  studies_uri: ""

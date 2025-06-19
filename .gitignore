@@ -1,3 +1,10 @@
 __pycache__
 dtypes.py
 tests/*
+todo.txt
+.DS_Store
+data/
+store_sales_samples.zip
+mlruns/
+optuna_studies.db
+read_me.txt
