@@ -56,7 +56,6 @@ def main(args):
     del dfs['train']
     del dfs['test']
     
-    
     dfs['main'], dfs['stores'], dfs['oil'], dfs['holidays_events'] = process_data(
         dfs['main'],
         dfs['stores'], 

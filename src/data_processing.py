@@ -126,15 +126,15 @@ def fe_oil(oil):
 
     # Add day of the week, week/weekend
     oil['dayOfWeek'] = oil['date'].dt.day_name().astype('category')
-    oil['weekend'] = oil['dayOfWeek'].isin(['Saturday, Sunday']).astype('category')
+    oil['isWeekend'] = oil['dayOfWeek'].isin(['Saturday', 'Sunday']).astype('category')
 
     # Add month
     oil['Month'] = oil['date'].dt.month.astype('category')
 
     # Add how many days since last paycheck (from 15th/end of month)
-    oil['DaysSince15th'] = oil['date'].apply(days_since_15th).astype(int)
-    oil['DaysSinceLast'] = oil['date'].apply(days_since_last).astype(int)
-    oil['DaysSincePaycheck'] = oil[['DaysSince15th', 'DaysSinceLast']].apply(lambda x: min(x.iloc[0], x.iloc[1]), axis=1).astype(int)
+    oil['daysSince15th'] = oil['date'].apply(days_since_15th).astype(int)
+    oil['daysSinceLast'] = oil['date'].apply(days_since_last).astype(int)
+    oil['daysSincePaycheck'] = oil[['daysSince15th', 'daysSinceLast']].apply(lambda x: min(x.iloc[0], x.iloc[1]), axis=1).astype(int)
 
     # Add oil pct change since previous days, weeks, months, etc.
     lags = [1, 2, 4, 7, 14, 28, 365]
