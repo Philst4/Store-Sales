@@ -12,22 +12,24 @@ def load_config():
     with open("config.yaml", "r") as f:
         return yaml.safe_load(f)
     
-def get_data_paths(mode, config):
-    assert mode in ("test_local", "test_cloud", "production"), f"Unidentified run mode '{mode}'"
-    raw_path = config[mode]['data']['raw']
-    clean_path = config[mode]['data']['clean']
+def get_data_paths(storage_mode, config):
+    assert storage_mode in ("local", "cloud"), f"Unidentified storage_mode '{storage_mode}'"
+    raw_path = config['storage_mode'][storage_mode]['data']['raw']
+    clean_path = config['storage_mode'][storage_mode]['data']['clean']
     return raw_path, clean_path
 
 def load_raw_data(raw_path):
     print(f"Reading data from '{raw_path}'...")
-    train = pd.read_csv(os.path.join(raw_path, "train.csv"))
-    test = pd.read_csv(os.path.join(raw_path, "test.csv"))
-    stores = pd.read_csv(os.path.join(raw_path, "stores.csv"))
-    oil = pd.read_csv(os.path.join(raw_path, "oil.csv"))
-    holidays_events = pd.read_csv(os.path.join(raw_path, "holidays_events.csv"))
-    return train, test, stores, oil, holidays_events
+    dfs = {}
+    
+    dfs['train'] = pd.read_csv(os.path.join(raw_path, "train.csv"))
+    dfs['test'] = pd.read_csv(os.path.join(raw_path, "test.csv"))
+    dfs['stores'] = pd.read_csv(os.path.join(raw_path, "stores.csv"))
+    dfs['oil'] = pd.read_csv(os.path.join(raw_path, "oil.csv"))
+    dfs['holidays_events'] = pd.read_csv(os.path.join(raw_path, "holidays_events.csv"))
+    return dfs
 
-def save_clean_data(clean_path, df):
+def save_clean_data(clean_path, dfs):
     """
     Saves data, as well as categorical metadata.
     """
@@ -38,16 +40,17 @@ def save_clean_data(clean_path, df):
         os.makedirs(clean_path)
     
     # Save data
-    df.to_parquet(os.path.join(clean_path, "clean.parquet"), index=False)
+    for df_name, df in dfs.items():
+        df.to_parquet(os.path.join(clean_path, f"{df_name}.parquet"), index=False)
     
-    # Save categorical metadata
-    cat_columns = df.select_dtypes(include='category').columns.tolist()
-    cat_meta = {
-        col: list(df[col].cat.categories)
-        for col in cat_columns
-    }
-    with open(os.path.join(clean_path, "clean_cat_meta.json"), "w") as f:
-        json.dump(cat_meta, f)  
+        # Save categorical metadata
+        cat_columns = df.select_dtypes(include='category').columns.tolist()
+        cat_meta = {
+            col: list(df[col].cat.categories)
+            for col in cat_columns
+        }
+        with open(os.path.join(clean_path, f"{df_name}_cat_meta.json"), "w") as f:
+            json.dump(cat_meta, f)  
     
 def load_clean_data(clean_path):
     """

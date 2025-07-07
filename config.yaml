@@ -1,17 +1,16 @@
-test_local:
-  data:
-    raw: "./data/raw/"
-    clean: "./data/clean/"
-  studies_uri: "sqlite:///./optuna_studies.db"
+run_mode:
+  test: ""
+  production: ""
 
-test_cloud:
-  data:
-    raw: ""
-    clean: ""
-  studies_uri: ""
 
-production:
-  data:
-    raw: ""
-    clean: ""
-  studies_uri: ""
+storage_mode:
+  local: 
+    data:
+      raw: "./data/raw/"
+      clean: "./data/clean/"
+    studies_uri: "sqlite:///./optuna_studies.db"
+  cloud: 
+    data:
+      raw: ""
+      clean: ""
+    studies_uri: ""
