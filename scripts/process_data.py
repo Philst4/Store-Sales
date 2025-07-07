@@ -48,7 +48,7 @@ def main(args):
         oil, 
         holidays_events
     )
-    merged = merge_all(main, stores, oil, holidays_events)
+    """merged = merge_all(main, stores, oil, holidays_events)
 
     # Add 'is_train', 'is_test'
     merged['is_train'] = merged['id'].isin(train_ids)
@@ -60,7 +60,7 @@ def main(args):
         merged = assign_ascending_dates(merged)
     
     # Save data (along with category metadata)
-    save_clean_data(CLEAN_DATA_PATH, merged)
+    save_clean_data(CLEAN_DATA_PATH, merged)"""
     
     
 if __name__ == "__main__":
