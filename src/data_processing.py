@@ -75,6 +75,14 @@ def clean_holidays_events(holidays_events):
 
 def fe_main(main):
     # Idea for future: do stuff with onpromotion (groupby's?)
+
+    # Add oil pct change in sales wrt store since previous days, weeks, months, etc.
+    if False:
+        lags = [1, 2, 4, 7, 14, 28, 365]
+        for lag in lags:
+            main[f'sales_PctChange{lag}'] = main['sales'].pct_change(periods=lag).fillna(0).astype('float')
+        return main
+    
     return main
 
 def fe_holidays_events(holidays_events):
