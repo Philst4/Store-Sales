@@ -196,7 +196,7 @@ def merge_all(main, stores, oil, holidays_events):
     This may need to be reworked, because it greatly expands
     the size of the data. A normalized setup may be far better.
     """
-    
+    print(f"Merging all data...")
     # Merge main with stores on 'store_nbr' -> merge1
     merge1 = pd.merge(main, stores, on='store_nbr', how='left')
 
