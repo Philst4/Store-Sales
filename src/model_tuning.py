@@ -100,7 +100,9 @@ def backtest(
     
     # Backtest
     losses = []
+    print(f"#### Backtesting ####")
     for i in range(n_tests-1, -1, -1):
+        print(f" * {n_tests - i} of {n_tests}...")
         
         # Figure out the dates to use
         first_val_date = last_date - pd.Timedelta(
