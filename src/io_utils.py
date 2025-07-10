@@ -61,16 +61,29 @@ def load_clean_data(clean_path):
     print(f"Loading clean data from '{clean_path}'...")
     
     # Load in data
-    df = pd.read_parquet(os.path.join(clean_path, 'clean.parquet'), engine="pyarrow")
+    clean_df_names = ['main', 'stores', 'oil', 'holidays_events']
+    clean_dfs = {}
+    for df_name in clean_df_names:
+        # Load in df
+        clean_df = pd.read_parquet(
+            os.path.join(
+                clean_path, 
+                f'{df_name}.parquet'
+            ), 
+            engine="pyarrow"
+        )
     
-    # Load in category metadata
-    with open(os.path.join(clean_path, "clean_cat_meta.json"), "r") as f:
-        cat_meta = json.load(f)
+        # Load in category metadata
+        with open(os.path.join(clean_path, f"{df_name}_cat_meta.json"), "r") as f:
+            cat_meta = json.load(f)
         
-    # Assign category metadata to df
-    for col, cats in cat_meta.items():
-        df[col] = pd.Categorical(df[col], categories=cats)
-    return df
+        # Assign category metadata to df
+        for col, cats in cat_meta.items():
+            clean_df[col] = pd.Categorical(clean_df[col], categories=cats)
+            
+        # Save in df dict
+        clean_dfs[df_name] = clean_df
+    return clean_dfs
 
 def load_experiment_config(experiment_config_path):
     print(f"Loading experiment config from '{experiment_config_path}'...")
@@ -90,12 +103,12 @@ def load_experiment_config(experiment_config_path):
     }
     return config_dict
 
-def get_studies_uri(mode, config):
-    assert mode in ("test_local", "test_cloud", "production"), f"Unidentified run mode '{mode}'"
-    studies_uri =  config[mode]["studies_uri"]
+def get_studies_uri(storage_mode, config):
+    assert storage_mode in ("local", "cloud"), f"Unidentified storage_mode '{storage_mode}'"
+    studies_uri =  config['storage_mode'][storage_mode]["studies_uri"]
     
     # Parse URI (assumes SQLite URI like 'sqlite:///./experiment_logs/optuna_studies.db')
-    if mode == "test_local":
+    if storage_mode == "local":
         if studies_uri.startswith("sqlite:///"):
         
             # Make the path to the database
