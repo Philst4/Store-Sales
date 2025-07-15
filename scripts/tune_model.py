@@ -14,8 +14,9 @@ from src.io_utils import (
 
 from src.data_processing import merge_all
 
+from src.modeling import get_train
+
 from src.model_tuning import (
-    get_train,
     make_objective,
     run_experiment
 )
@@ -43,7 +44,7 @@ def main(args):
         args.experiment_config
     )
     
-    # So... eventually we want to do some merging on the fly for performance?
+    # So... eventually maybe want to do some merging on the fly for performance?
     # For now, we just merge everything and go
     merged_df = merge_all(
         clean_dfs['main'],
@@ -97,6 +98,7 @@ if __name__ == "__main__":
         help="Where things are stored relative to script (local or cloud)"
     )
     
+    parser.add_argument("--sample_frac", type=int, default=0.25, help="Fraction of training samples to take from training data.")
     parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")
     parser.add_argument("--n_trials", type=int, default=5, help="Number of study trials to run (e.g. 5)")
     parser.add_argument("--n_jobs", type=int, default=1, help="Number of jobs to run in parallel (e.g. 2)")

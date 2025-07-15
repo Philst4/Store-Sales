@@ -5,6 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import argparse
 
 # External imports
+import numpy as np
 
 # Internal imports
 from src.io_utils import (
@@ -72,6 +73,9 @@ def main(args):
         # Diversify dates
         #merged = assign_ascending_dates(merged)
         pass
+    
+    # Save log-targets of training data (will be useful for tuning)
+    dfs['main']['log_sales'] = np.log1p(dfs['main']['sales'])
     
     # Save data (along with category metadata)
     save_clean_data(CLEAN_DATA_PATH, dfs)

@@ -2,6 +2,7 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
+import xgboost as xgb
 from xgboost import XGBRegressor
 from sklearn.metrics import root_mean_squared_error
 import numpy as np
@@ -9,12 +10,28 @@ import numpy as np
 # Definitions
 experiment_name = "xgb"
 
-def build_model(df, hyperparams):
+# Check for GPU
+def gpu_is_available():
+    try:
+        params = {
+            "tree_method": "gpu_hist",
+            "predictor": "gpu_predictor",
+            "n_estimators": 1
+        }
+        dtrain = xgb.DMatrix(data=[[0, 0], [1, 1]], label=[0, 1])
+        model = xgb.train(params, dtrain, num_boost_round=1)
+        return True
+    except xgb.core.XGBoostError:
+        return False
+    
+USE_GPU = gpu_is_available()
+
+def build_model(X_sample, hyperparams):
     # Identify categorical columns
-    cat_cols = [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col])]
+    cat_cols = [col for col in X_sample.columns if X_sample[col].dtype == 'object' or pd.api.types.is_categorical_dtype(X_sample[col])]
 
     # Identify numeric columns
-    num_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+    num_cols = [col for col in X_sample.columns if pd.api.types.is_numeric_dtype(X_sample[col])]
 
     # Define transformer for categorical columns
     cat_transformer = OneHotEncoder(handle_unknown='ignore')
@@ -28,6 +45,14 @@ def build_model(df, hyperparams):
         ],
         remainder='drop'  # drop any columns not listed in transformers
     )
+    
+    # Build predictor
+    if USE_GPU:
+        hyperparams['tree_method'] = "gpu_hist"
+        hyperparams['predictor'] = "gpu_predictor"
+    else:
+        hyperparams['tree_method'] = "hist"
+        hyperparams['predictor'] = "auto"   
 
     # Wrap in pipeline
     # What this does, is preprocesses the data, then fits the model
@@ -51,13 +76,6 @@ def make_hyperparam_space(trial):
         'reg_lambda' : trial.suggest_float('reg_lambda', 0, 10),
         'gamma' : trial.suggest_float('gamma', 0, 5),    
     }
-    
-def loss_fn(y_true, y_pred):
-    """
-    RMLSE implementation.
-    """
-    return root_mean_squared_error(np.log1p(y_true), np.log1p(y_pred))
-    
-loss_fn_name = "RMLSE"
+
 period_size = 30
 n_tests = 12
