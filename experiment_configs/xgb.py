@@ -12,7 +12,8 @@ import torch # for device checking
 
 # Definitions
 experiment_name = "xgb"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
+tree_method = "hist"
 
 # Check for GPU
 """
@@ -53,11 +54,9 @@ def build_model(X_sample, hyperparams):
     )
     
     # Build predictor
-    hyperparams['tree_method'] = "hist"
-    print(DEVICE)
+    print(device)
     print("test")
     assert False
-    hyperparams['device'] = DEVICE
 
     # Wrap in pipeline
     # What this does, is preprocesses the data, then fits the model
