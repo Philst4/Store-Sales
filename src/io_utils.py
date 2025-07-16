@@ -100,7 +100,7 @@ def load_experiment_config(experiment_config_path):
         if not k.startswith("__") 
         and not isinstance(v, types.ModuleType)
         and getattr(v, "__module__", module_name) == module_name
-        and k not in ('gpu_is_available', 'USE_GPU')
+        and k != 'DEVICE'
     }
     return config_dict
 

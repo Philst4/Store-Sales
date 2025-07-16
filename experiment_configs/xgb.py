@@ -12,26 +12,7 @@ import torch # for device checking
 
 # Definitions
 experiment_name = "xgb"
-device = "cuda" if torch.cuda.is_available() else "cpu"
-tree_method = "hist"
-
-# Check for GPU
-"""
-def gpu_is_available():
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            params = {
-                "tree_method": "hist",
-                "device" : "cuda"
-            }
-            dtrain = xgb.DMatrix(data=[[0, 0], [1, 1]], label=[0, 1])
-            model = xgb.train(params, dtrain, num_boost_round=1)
-        return True
-    except xgb.core.XGBoostError:
-        return False
-USE_GPU = gpu_is_available()
-"""
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu" # Check for GPU
 
 def build_model(X_sample, hyperparams):
     # Identify categorical columns
@@ -54,9 +35,8 @@ def build_model(X_sample, hyperparams):
     )
     
     # Build predictor
-    print(device)
-    print("test")
-    assert False
+    hyperparams['tree_method'] = "hist"
+    hyperparams['device'] = DEVICE
 
     # Wrap in pipeline
     # What this does, is preprocesses the data, then fits the model
