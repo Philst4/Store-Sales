@@ -47,10 +47,10 @@ def build_model(X_sample, hyperparams):
     # Build predictor
     if USE_GPU:
         hyperparams['tree_method'] = "gpu_hist"
-        hyperparams['predictor'] = "gpu_predictor"
+        #hyperparams['predictor'] = "gpu_predictor"
     else:
         hyperparams['tree_method'] = "hist"
-        hyperparams['predictor'] = "auto"   
+        #hyperparams['predictor'] = "auto"   
 
     # Wrap in pipeline
     # What this does, is preprocesses the data, then fits the model
