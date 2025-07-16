@@ -4,8 +4,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 import xgboost as xgb
 from xgboost import XGBRegressor
-from sklearn.metrics import root_mean_squared_error
-import numpy as np
 
 # Definitions
 experiment_name = "xgb"

@@ -7,7 +7,7 @@ import numpy as np
 from sklearn.metrics import root_mean_squared_error
 
 # THIS FILE CONTAINS EVERYTHING PERTAINING TO FITTING A MODEL
-# Model is assumed to make log-predictions (predict log_sales)
+# Model configured to make log-predictions (predict log_sales)
 
 # Config
 NON_FEATURES = ['date', 'is_train', 'is_test', 'sales', 'log_sales']
