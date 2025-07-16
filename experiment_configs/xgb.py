@@ -12,9 +12,8 @@ experiment_name = "xgb"
 def gpu_is_available():
     try:
         params = {
-            "tree_method": "gpu_hist",
-            "predictor": "gpu_predictor",
-            "n_estimators": 1
+            "tree_method": "hist",
+            "device" : "cuda"
         }
         dtrain = xgb.DMatrix(data=[[0, 0], [1, 1]], label=[0, 1])
         model = xgb.train(params, dtrain, num_boost_round=1)
@@ -45,12 +44,11 @@ def build_model(X_sample, hyperparams):
     )
     
     # Build predictor
+    hyperparams['tree_method'] = "hist"
     if USE_GPU:
-        hyperparams['tree_method'] = "gpu_hist"
-        #hyperparams['predictor'] = "gpu_predictor"
+        hyperparams['device'] = "cuda"
     else:
-        hyperparams['tree_method'] = "hist"
-        #hyperparams['predictor'] = "auto"   
+        hyperparams['device'] = "cpu"
 
     # Wrap in pipeline
     # What this does, is preprocesses the data, then fits the model
