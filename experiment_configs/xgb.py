@@ -8,11 +8,14 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 import xgboost as xgb
 from xgboost import XGBRegressor
+import torch # for device checking
 
 # Definitions
 experiment_name = "xgb"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Check for GPU
+"""
 def gpu_is_available():
     try:
         with warnings.catch_warnings():
@@ -26,8 +29,8 @@ def gpu_is_available():
         return True
     except xgb.core.XGBoostError:
         return False
-    
 USE_GPU = gpu_is_available()
+"""
 
 def build_model(X_sample, hyperparams):
     # Identify categorical columns
@@ -51,13 +54,10 @@ def build_model(X_sample, hyperparams):
     
     # Build predictor
     hyperparams['tree_method'] = "hist"
-    print(USE_GPU)
+    print(DEVICE)
     print("test")
     assert False
-    if USE_GPU:
-        hyperparams['device'] = "cuda"
-    else:
-        hyperparams['device'] = "cpu"
+    hyperparams['device'] = DEVICE
 
     # Wrap in pipeline
     # What this does, is preprocesses the data, then fits the model
