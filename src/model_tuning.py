@@ -72,7 +72,7 @@ def backtest(
         ]
         
         if len(df_tr) == 0:
-            losses.append(0) # No training data!
+            losses.append(0.) # No training data!
         else:
             # Extract features and targets
             X_tr, y_tr = get_features(df_tr), get_targets(df_tr)
@@ -158,7 +158,7 @@ def run_experiment(
         study_path: where to save the study to
         experiment_name: the name of the experiment/study
     """
-
+    
     mlflow.set_experiment(experiment_name)
     study = optuna.create_study(
         direction='minimize',

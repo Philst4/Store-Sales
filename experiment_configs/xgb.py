@@ -1,3 +1,7 @@
+# Internal imports
+import warnings
+
+# External imports
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
@@ -11,12 +15,14 @@ experiment_name = "xgb"
 # Check for GPU
 def gpu_is_available():
     try:
-        params = {
-            "tree_method": "hist",
-            "device" : "cuda"
-        }
-        dtrain = xgb.DMatrix(data=[[0, 0], [1, 1]], label=[0, 1])
-        model = xgb.train(params, dtrain, num_boost_round=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            params = {
+                "tree_method": "hist",
+                "device" : "cuda"
+            }
+            dtrain = xgb.DMatrix(data=[[0, 0], [1, 1]], label=[0, 1])
+            model = xgb.train(params, dtrain, num_boost_round=1)
         return True
     except xgb.core.XGBoostError:
         return False
@@ -45,6 +51,9 @@ def build_model(X_sample, hyperparams):
     
     # Build predictor
     hyperparams['tree_method'] = "hist"
+    print(USE_GPU)
+    print("test")
+    assert False
     if USE_GPU:
         hyperparams['device'] = "cuda"
     else:
