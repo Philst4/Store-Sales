@@ -1,21 +1,47 @@
-# STL imports
-# N/A
+import pandas as pd
+import numpy as np
+from sklearn.metrics import root_mean_squared_error
+import optuna
+import mlflow
+from joblib import Parallel, delayed
+import multiprocessing
+import sys
 
-# Internal imports
 from src.modeling import (
     get_features,
     get_targets,
     build_fit_and_evaluate
 )
 
-# External imports
-import pandas as pd
-import numpy as np
-from sklearn.metrics import root_mean_squared_error
-import optuna
-import mlflow
+def _evaluate_split(df, build_model, hyperparams, loss_fn, period_size, i, last_date, counter=None, total=None, lock=None):
+    """
+    Helper function to evaluate one fold of the backtest.
+    """
+    first_val_date = last_date - pd.Timedelta(days=(i + 1) * period_size)
+    last_val_date = last_date - pd.Timedelta(days=i * period_size)
 
-# THIS FILE CONTAINS EVERYTHING SPECIFIC TO TUNING
+    df_tr = df[df['date'] < first_val_date]
+    df_val = df[(first_val_date < df['date']) & (df['date'] <= last_val_date)]
+
+    if len(df_tr) == 0:
+        result = 0.
+    else:
+        X_tr, y_tr = get_features(df_tr), get_targets(df_tr)
+        X_val, y_val = get_features(df_val), get_targets(df_val)
+
+        result = build_fit_and_evaluate(
+            X_tr, y_tr, X_val, y_val,
+            build_model, hyperparams, loss_fn
+        )
+
+    # Progress tracking
+    if counter is not None and lock is not None:
+        with lock:
+            counter.value += 1
+            print(f" * Fold {counter.value} of {total} complete", flush=True)
+
+    return result
+
 
 def backtest(
     df,
@@ -27,70 +53,45 @@ def backtest(
     n_jobs=1
 ):
     """
-    Backtests using given arguments.
-    
-    Default arguments backtests using each of the 12 last months
-    in the df as the validation set in each iteration (a full year). 
-    
-    Args:
-        df : DataFrame with training data
-        build_model : Function for building model
-        hyperparams : Arguments for build_model
-        loss_fn : How to evaluate predictions (against targets)
-        period_size : Number of days in a period
-        n_tests : How many tests to perform
-        n_jobs : How many splits to evaluate in parallel
-    
-    Returns:
-        losses : the list of losses accumulated for each split
+    Backtests using given arguments, with optional parallelization.
     """
-    
-    # Sort data by date
     df = df.sort_values(by=['date'])
     last_date = df['date'].max()
-    
-    # Backtest
-    losses = []
-    print(f"#### Backtesting ####")
-    for i in range(n_tests-1, -1, -1):
-        print(f" * {n_tests - i} of {n_tests}...")
-        
-        # Figure out the dates to use
-        first_val_date = last_date - pd.Timedelta(
-            days=(i + 1) * period_size
-        )
-        last_val_date = last_date - pd.Timedelta(
-            days=i * period_size
-        )
-        
-        # Make train-val split using dates
-        df_tr = df[df['date'] < first_val_date]
-        df_val = df[
-            (first_val_date < df['date'])
-            &
-            (df['date'] <= last_val_date)   
-        ]
-        
-        if len(df_tr) == 0:
-            losses.append(0.) # No training data!
-        else:
-            # Extract features and targets
-            X_tr, y_tr = get_features(df_tr), get_targets(df_tr)
-            X_val, y_val = get_features(df_val), get_targets(df_val)
-            
-            # Evaluate; add to losses
-            losses.append(
-                build_fit_and_evaluate(
-                    X_tr,
-                    y_tr, 
-                    X_val,
-                    y_val,
-                    build_model,
-                    hyperparams,
-                    loss_fn
-                )
+
+    print(f"#### Backtesting ({n_tests} folds) ####")
+
+    fold_indices = list(range(n_tests - 1, -1, -1))
+
+    if n_jobs == 1:
+        # Serial execution
+        losses = []
+        for count, i in enumerate(fold_indices, start=1):
+            #print(f" * Running fold {count} of {n_tests}...")
+            loss = _evaluate_split(
+                df, build_model, hyperparams, loss_fn,
+                period_size, i, last_date
             )
-    return losses # list of losses
+            print(f" * Fold {count} of {n_tests} complete", flush=True)
+            losses.append(loss)
+    else:
+        # Parallel execution
+        print(f" * Running folds in parallel with n_jobs={n_jobs}...")
+
+        manager = multiprocessing.Manager()
+        counter = manager.Value('i', 0)
+        lock = manager.Lock()
+
+        # Dispatch parallel jobs
+        losses = Parallel(n_jobs=n_jobs)(
+            delayed(_evaluate_split)(
+                df, build_model, hyperparams, loss_fn,
+                period_size, i, last_date,
+                counter, n_tests, lock
+            )
+            for i in fold_indices
+        )
+        
+    return losses
 
 def make_objective(
     df,
