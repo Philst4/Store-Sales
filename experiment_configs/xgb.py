@@ -60,6 +60,3 @@ def make_hyperparam_space(trial):
         'reg_lambda' : trial.suggest_float('reg_lambda', 0, 10),
         'gamma' : trial.suggest_float('gamma', 0, 5),    
     }
-
-period_size = 30
-n_tests = 12

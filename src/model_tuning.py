@@ -43,13 +43,13 @@ def _evaluate_split(df, build_model, hyperparams, loss_fn, period_size, i, last_
     return result
 
 
-def backtest(
+def _backtest(
     df,
     build_model, 
     hyperparams,
     loss_fn,
-    period_size=30,
-    n_tests=12,
+    n_backtests=4,
+    valset_size=92,
     n_jobs=1
 ):
     """
@@ -58,9 +58,9 @@ def backtest(
     df = df.sort_values(by=['date'])
     last_date = df['date'].max()
 
-    print(f"#### Backtesting ({n_tests} folds) ####")
+    print(f"#### Backtesting ({n_backtests} folds) ####")
 
-    fold_indices = list(range(n_tests - 1, -1, -1))
+    fold_indices = list(range(n_backtests - 1, -1, -1))
 
     if n_jobs == 1:
         # Serial execution
@@ -69,9 +69,9 @@ def backtest(
             #print(f" * Running fold {count} of {n_tests}...")
             loss = _evaluate_split(
                 df, build_model, hyperparams, loss_fn,
-                period_size, i, last_date
+                valset_size, i, last_date
             )
-            print(f" * Fold {count} of {n_tests} complete", flush=True)
+            print(f" * Fold {count} of {n_backtests} complete", flush=True)
             losses.append(loss)
     else:
         # Parallel execution
@@ -85,8 +85,8 @@ def backtest(
         losses = Parallel(n_jobs=n_jobs)(
             delayed(_evaluate_split)(
                 df, build_model, hyperparams, loss_fn,
-                period_size, i, last_date,
-                counter, n_tests, lock
+                valset_size, i, last_date,
+                counter, n_backtests, lock
             )
             for i in fold_indices
         )
@@ -101,8 +101,8 @@ def make_objective(
     experiment_name="N/A",
     loss_fn_name="RMSE",
     target_name="log_sales",
-    period_size=30,
-    n_tests=12,
+    n_backtests=4,
+    valset_size=92,
     n_jobs=1
 ):
     """
@@ -120,13 +120,13 @@ def make_objective(
     """
     
     # Define function to evaluate single set of hyperparameters
-    backtest_hyperparams = lambda hyperparams : backtest(
+    backtest_hyperparams = lambda hyperparams : _backtest(
         df,
         build_model,
         hyperparams, 
         loss_fn,
-        period_size,
-        n_tests,
+        n_backtests,
+        valset_size,
         n_jobs
     )
     

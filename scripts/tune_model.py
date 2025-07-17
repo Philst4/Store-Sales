@@ -62,6 +62,8 @@ def main(args):
     # Make the objective function
     objective = make_objective(
         train_df,
+        n_backtests=args.n_backtests,
+        valset_size=args.valset_size,
         n_jobs=n_jobs,
         **experiment_config
     )
@@ -102,6 +104,8 @@ if __name__ == "__main__":
     parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")
     parser.add_argument("--n_trials", type=int, default=5, help="Number of study trials to run (e.g. 5)")
     parser.add_argument("--n_jobs", type=int, default=1, help="Number of jobs to run in parallel (e.g. 2)")
+    parser.add_argument("--n_backtests", type=int, default=4, help="Number of backtests to run for each trial")
+    parser.add_argument("--valset_size", type=int, default=92, help="Number of days included in each valset")
     args = parser.parse_args()
     main(args)
     print(f"Script complete")
