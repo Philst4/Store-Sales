@@ -17,7 +17,6 @@ from src.io_utils import (
 from src.data_processing import (
     combine_train_test,
     process_data,
-    merge_all,
     assign_ascending_dates
 )
 
@@ -73,9 +72,6 @@ def main(args):
         # Diversify dates
         #merged = assign_ascending_dates(merged)
         pass
-    
-    # Save log-targets of training data (will be useful for tuning)
-    dfs['main']['log_sales'] = np.log1p(dfs['main']['sales'])
     
     # Save data (along with category metadata)
     save_clean_data(CLEAN_DATA_PATH, dfs)

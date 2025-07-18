@@ -1,9 +1,9 @@
 # Internal imports
 
-
 # External imports
 import pandas as pd
-
+import numpy as np
+from tqdm import tqdm
 
 # Just basic combination of train + test
 def combine_train_test(train, test):
@@ -17,7 +17,7 @@ def combine_train_test(train, test):
 
 #### CLEANING PROCESSES ####
 
-def clean_main(main):
+def _clean_main(main):
     # Make store_nbr, family into categorical
     cat_features = ['store_nbr', 'family']
     main[cat_features] = main[cat_features].astype('category')
@@ -26,13 +26,13 @@ def clean_main(main):
     main['date'] = pd.to_datetime(main['date'], format="%Y-%m-%d")
     return main
 
-def clean_stores(stores):
+def _clean_stores(stores):
     stores = stores.copy()
     cat_cols = ['store_nbr', 'city', 'state', 'type', 'cluster']
     stores[cat_cols] = stores[cat_cols].astype('category')
     return stores
 
-def clean_oil(oil):
+def _clean_oil(oil):
     oil = oil.copy()
     oil.date = pd.to_datetime(oil.date, format="%Y-%m-%d")
 
@@ -54,7 +54,7 @@ def clean_oil(oil):
     oil['dcoilwtico'] = oil['dcoilwtico'].bfill()
     return oil
 
-def clean_holidays_events(holidays_events):
+def _clean_holidays_events(holidays_events):
     holidays_events = holidays_events.copy()
     
     # Deal with transfers? 
@@ -72,20 +72,14 @@ def clean_holidays_events(holidays_events):
     return holidays_events
 
 #### FEATURE ENGINEERING PROCESSES ####
-
-def fe_main(main):
-    # Idea for future: do stuff with onpromotion (groupby's?)
-
-    # Add oil pct change in sales wrt store since previous days, weeks, months, etc.
-    if False:
-        lags = [1, 2, 4, 7, 14, 28, 365]
-        for lag in lags:
-            main[f'sales_PctChange{lag}'] = main['sales'].pct_change(periods=lag).fillna(0).astype('float')
-        return main
-    
+def _fe_main(
+    main
+):
+    # Add log2p of 'sales' (target)
+    main['log_sales'] = np.log1p(main['sales'])
     return main
 
-def fe_holidays_events(holidays_events):
+def _fe_holidays_events(holidays_events):
     """
     Feature engineering process for holidays_events data.
     
@@ -106,10 +100,10 @@ def fe_holidays_events(holidays_events):
     holidays_events['is_holiday_event'] = 1
     return holidays_events
 
-def fe_stores(stores):
+def _fe_stores(stores):
     return stores
 
-def days_since_15th(date):
+def _days_since_15th(date):
         if date.day >= 15:
             days_since = date.day - 15
         else:
@@ -118,7 +112,7 @@ def days_since_15th(date):
             days_since = (last_day_prev_month.day - 15) + date.day
         return days_since
 
-def days_since_last(date):
+def _days_since_last(date):
     # Get the last day of the current month
     first_of_month = pd.Timestamp(year=date.year, month=date.month, day=1)
     last_of_month = (first_of_month + pd.offsets.MonthEnd(1)) - pd.offsets.Day(1)
@@ -128,7 +122,7 @@ def days_since_last(date):
         days_since = 1 + (date - first_of_month).days
     return days_since
 
-def fe_oil(oil):
+def _fe_oil(oil):
     # Mostly stuff with days
     oil = oil.sort_values(by=['date']).copy()
 
@@ -140,8 +134,8 @@ def fe_oil(oil):
     oil['Month'] = oil['date'].dt.month.astype('category')
 
     # Add how many days since last paycheck (from 15th/end of month)
-    oil['daysSince15th'] = oil['date'].apply(days_since_15th).astype(int)
-    oil['daysSinceLast'] = oil['date'].apply(days_since_last).astype(int)
+    oil['daysSince15th'] = oil['date'].apply(_days_since_15th).astype(int)
+    oil['daysSinceLast'] = oil['date'].apply(_days_since_last).astype(int)
     oil['daysSincePaycheck'] = oil[['daysSince15th', 'daysSinceLast']].apply(lambda x: min(x.iloc[0], x.iloc[1]), axis=1).astype(int)
 
     # Add oil pct change since previous days, weeks, months, etc.
@@ -150,20 +144,266 @@ def fe_oil(oil):
         oil[f'oilPrice_PctChange{lag}'] = oil['dcoilwtico'].pct_change(periods=lag).fillna(0).astype('float')
     return oil
 
+def _add_lag_stats_main(
+    main, 
+    stores,
+    lag=15, 
+    windows=[1, 7, 14, 28, 91, 365],  # 13 weeks is 91 days; 1 season
+    col='sales',
+):
+    """
+    Calculates lag stats with respect to the 'sales' column in 'main'.
+
+    Adds lag-window statistics relative to all stores and
+    categories from the 'stores' dataframe.
+    """
+    # Ensure the list of store categorical columns
+    cat_cols = list(stores.columns)
+
+    # Dictionary to hold new columns
+    new_cols = {}
+
+    for window in windows:
+        # Stats wrt all stores
+        new_cols[f'{col}_lag{lag}_window{window}_mean_wrt_allStores'] = 0.0
+        new_cols[f'{col}_lag{lag}_window{window}_std_wrt_allStores'] = 0.0
+        new_cols[f'{col}_lag{lag}_window{window}_min_wrt_allStores'] = 0.0
+        new_cols[f'{col}_lag{lag}_window{window}_max_wrt_allStores'] = 0.0
+
+        # Stats wrt each category in stores
+        for cat_col in cat_cols:
+            new_cols[f'{col}_lag{lag}_window{window}_mean_wrt_{cat_col}'] = 0.0
+            new_cols[f'{col}_lag{lag}_window{window}_std_wrt_{cat_col}'] = 0.0
+            new_cols[f'{col}_lag{lag}_window{window}_min_wrt_{cat_col}'] = 0.0
+            new_cols[f'{col}_lag{lag}_window{window}_max_wrt_{cat_col}'] = 0.0
+
+    # Create a DataFrame of zeros with the same number of rows as 'main'
+    zeros_df = pd.DataFrame(
+        {col_name: [value] * len(main) for col_name, value in new_cols.items()},
+        index=main.index
+    )
+
+    # Concatenate all new columns to the original DataFrame at once
+    main = pd.concat([main, zeros_df], axis=1)
+
+    return main
+
+def _add_lag_stats_main(
+    main, 
+    stores,
+    lag=15, 
+    windows=[1, 7, 14, 28, 91, 365],  # 13 weeks is 91 days; 1 season
+    col='sales',
+):
+    """
+    Efficiently computes lagged rolling statistics for `col` across all stores.
+    Each stat for row at date D is computed over range (D - lag - window, D - lag].
+    """
+
+    main = main.copy()
+    main = main.sort_values('date')
+
+    # Save index for merging later
+    main.set_index('date', inplace=True)
+
+    for window in windows:
+        # --- 1. All Stores, All Families ---
+        rolling = (
+            main[col]
+            .rolling(f'{window}D', min_periods=1)
+            .agg(['mean', 'std', 'min', 'max'])
+            .shift(lag, freq='D')
+        )
+        rolling.columns = [
+            f'{col}_lag{lag}_window{window}_{stat}'
+            for stat in ['mean', 'std', 'min', 'max']
+        ]
+        main = main.merge(rolling, left_index=True, right_index=True, how='left')
+
+        # --- 2. All Stores, Per Family ---
+        grouped = []
+
+        for family, group in main.groupby('family', observed=False):
+            rolled = (
+                group[[col]]
+                .rolling(f'{window}D', min_periods=1)
+                .agg(['mean', 'std', 'min', 'max'])
+                .shift(lag, freq='D')
+            )
+            # Flatten column names
+            rolled.columns = [
+                f'{col}_lag{lag}_window{window}_{stat}_wrt_family'
+                for stat in ['mean', 'std', 'min', 'max']
+            ]
+            rolled['family'] = family
+            grouped.append(rolled.reset_index())
+
+        rolling_by_family = pd.concat(grouped, ignore_index=True)
+        main = main.reset_index().merge(rolling_by_family, on=['date', 'family'], how='left').set_index('date')
+
+        # --- 3. Per Store, All Families ---
+        grouped = []
+        for store, group in main.groupby('store_nbr', observed=False):
+            rolled = (
+                group[[col]]
+                .rolling(f'{window}D', min_periods=1)
+                .agg(['mean', 'std', 'min', 'max'])
+                .shift(lag, freq='D')
+            )
+            rolled.columns = [
+                f'{col}_lag{lag}_window{window}_{stat}_wrt_store'
+                for stat in ['mean', 'std', 'min', 'max']
+            ]
+            rolled['store_nbr'] = store
+            grouped.append(rolled.reset_index())
+        rolling_by_store = pd.concat(grouped, ignore_index=True)
+        main = main.reset_index().merge(
+            rolling_by_store, on=['date', 'store_nbr'], how='left'
+        ).set_index('date')
+
+    main.reset_index(inplace=True)
+    return main
+
+from tqdm import tqdm
+import pandas as pd
+
+def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_progress=False):
+    """
+    Compute lagged rolling stats on `col` in `main`, grouped by `group_cols`.
+    If group_cols is None or empty, computes globally.
+    """
+    stats = ['mean', 'std', 'min', 'max']
+    result = []
+
+    # If no group, treat whole DataFrame
+    if not group_cols:
+        rolled = (
+            main[[col]]
+            .rolling(f"{window}D", min_periods=1)
+            .agg(stats)
+            .shift(lag, freq='D')
+        )
+        rolled.columns = [f"{col}_lag{lag}_window{window}_{stat}{suffix}" for stat in stats]
+        return main.merge(rolled, left_index=True, right_index=True, how='left')
+
+    # Grouped version
+    grouped = main.groupby(group_cols, observed=False)
+    iterator = tqdm(grouped, desc=f"Rolling ({'+'.join(group_cols)})", total=grouped.ngroups) if show_progress else grouped
+
+    for keys, group in iterator:
+        rolled = (
+            group[[col]]
+            .rolling(f"{window}D", min_periods=1)
+            .agg(stats)
+            .shift(lag, freq='D')
+        )
+        rolled.columns = [f"{col}_lag{lag}_window{window}_{stat}{suffix}" for stat in stats]
+
+        # Re-attach group keys for merge
+        if isinstance(keys, tuple):
+            for key, name in zip(keys, group_cols):
+                rolled[name] = key
+        else:
+            rolled[group_cols[0]] = keys
+
+        result.append(rolled.reset_index())
+
+    return main.reset_index().merge(pd.concat(result), on=['date'] + group_cols, how='left').set_index('date')
+
+def _scale_lag_stats(df, lag=15, window=365, stat='mean', drop_original=True):
+        """
+        Scales all lag stats wrt corresponding f"_lag{lag}_window{window}_{stat}".
+        """
+        stats = ['mean', 'std', 'min', 'max']
+        assert stat in stats, f"{stat} not in {stats}"
+            
+        stat_cols = [col for col in df.columns if f'_lag{lag}_window' in col]
+
+        # Track which unscaled columns have matching 365-day mean columns
+        scaled_cols = {}
+        for col in stat_cols:
+            if f'_window{window}_mean' in col:
+                continue  # Don't scale the 365 mean itself
+
+            # Try to find matching 365-day mean column with same grouping suffix
+            parts = col.split('_window')
+            if len(parts) != 2:
+                continue
+            base, rest = parts
+            stat_suffix = '_'.join(rest.split('_')[1:])  # e.g. 'mean', 'mean_wrt_city'
+            denom_col = f'{base}_window{window}_mean'
+            if stat_suffix:
+                denom_col += f'_{stat_suffix}'
+
+            if denom_col in df.columns:
+                scaled_cols[col] = denom_col
+
+        # Create scaled columns
+        for col, denom_col in scaled_cols.items():
+            scaled_col = f'{col}_scaled'
+            df[scaled_col] = df[col] / df[denom_col]
+
+        # Optionally drop original unscaled stat columns (but not the 365-day means!)
+        if drop_original:
+            df.drop(columns=list(scaled_cols.keys()), inplace=True)
+
+        return df
+
+def _add_lag_stats_main(main, stores, lag=15, windows=[1, 7, 14, 28, 91, 365], col='sales'):
+    """
+    Efficiently computes lagged rolling statistics for `col` across different groupings.
+    Each stat for row at date D is computed over range (D - lag - window, D - lag].
+    """
+
+    main = main.copy()
+    main = main.sort_values('date')
+    
+    # Merge 'main' with 'stores' on 'store_nbr'
+    main = main.merge(stores, on='store_nbr', how='left')
+    
+    # Set 'date' as index
+    main.set_index('date', inplace=True)
+
+    # Get categorical columns
+    cat_cols = main.select_dtypes(exclude='number').columns
+    
+    for window in tqdm(windows, desc="WRT processing windows"):
+        # 1. All Stores, All Families
+        main = _compute_grouped_rolling(main, group_cols=[], col=col, lag=lag, window=window, suffix='')
+
+        # 2. wrt cat_cols
+        for cat_col in tqdm(cat_cols, desc="WRT columns"):
+            main = _compute_grouped_rolling(main, group_cols=[cat_col], col=col, lag=lag, window=window, suffix=f'_wrt_{cat_col}')
+        
+    # Scale each stat wrt 365 day mean
+    main = _scale_lag_stats(main)
+
+    main.reset_index(inplace=True)
+    return main
+
+
 #### Main data-processing function
-def process_data(main, stores, oil, holidays_events):
-    main = fe_main(clean_main(main))
-    stores = fe_stores(clean_stores(stores))
-    oil = fe_oil(clean_oil(oil))
-    holidays_events = fe_holidays_events(
-        clean_holidays_events(
+def process_data(
+    main, 
+    stores, 
+    oil, 
+    holidays_events,
+    main_lag=15,
+    main_windows=[1, 7, 14, 28, 91, 365] # 13 weeks is 91 days
+):
+    main = _fe_main(_clean_main(main))
+    stores = _fe_stores(_clean_stores(stores))
+    oil = _fe_oil(_clean_oil(oil))
+    holidays_events = _fe_holidays_events(
+        _clean_holidays_events(
             holidays_events
             )
     )
+    main = _add_lag_stats_main(main, stores, main_lag, main_windows)
     return main, stores, oil, holidays_events
 
 #### DATA-MERGING LOGIC ####
-def fe_merge2(merge2, cols):
+def _fe_merge2(merge2, cols):
     """
     Some more feature-engineering on the merged dataframe.
     
@@ -208,7 +448,7 @@ def merge_all(main, stores, oil, holidays_events):
 
     # Add info about previous/next few days being a holiday
     cols = list(holidays_events.drop(columns='date').columns) # Define columns to shift
-    merge2 = fe_merge2(merge2, cols)
+    merge2 = _fe_merge2(merge2, cols)
 
     # Merge merge1 with merge2 on 'date' -> merge3
     merge3 = pd.merge(merge1, merge2, on='date', how='left')
