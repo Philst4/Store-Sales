@@ -152,19 +152,20 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
     result = []
 
     # If no group, treat whole DataFrame
-    print("test A")
     if not group_cols:
+        print("test A")
         rolled = (
             main[[col]]
             .rolling(f"{window}D", min_periods=1)
             .agg(stats)
             .shift(lag, freq='D')
         )
+        print("test B")
         rolled.columns = [f"{col}_lag{lag}_window{window}_{stat}{suffix}" for stat in stats]
+        print("test C")
         return main.merge(rolled, left_index=True, right_index=True, how='left')
 
     # Grouped version
-    print("test B")
     grouped = main.groupby(group_cols, observed=False)
 
     for keys, group in grouped:
