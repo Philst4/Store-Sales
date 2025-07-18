@@ -3,7 +3,6 @@
 # External imports
 import pandas as pd
 import numpy as np
-from tqdm import tqdm
 
 # Just basic combination of train + test
 def combine_train_test(train, test):
@@ -264,9 +263,6 @@ def _add_lag_stats_main(
     main.reset_index(inplace=True)
     return main
 
-from tqdm import tqdm
-import pandas as pd
-
 def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_progress=False):
     """
     Compute lagged rolling stats on `col` in `main`, grouped by `group_cols`.
@@ -288,9 +284,8 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
 
     # Grouped version
     grouped = main.groupby(group_cols, observed=False)
-    iterator = tqdm(grouped, desc=f"Rolling ({'+'.join(group_cols)})", total=grouped.ngroups) if show_progress else grouped
 
-    for keys, group in iterator:
+    for keys, group in grouped:
         rolled = (
             group[[col]]
             .rolling(f"{window}D", min_periods=1)
@@ -367,12 +362,12 @@ def _add_lag_stats_main(main, stores, lag=15, windows=[1, 7, 14, 28, 91, 365], c
     # Get categorical columns
     cat_cols = main.select_dtypes(exclude='number').columns
     
-    for window in tqdm(windows, desc="WRT processing windows"):
+    for window in windows:
         # 1. All Stores, All Families
         main = _compute_grouped_rolling(main, group_cols=[], col=col, lag=lag, window=window, suffix='')
 
         # 2. wrt cat_cols
-        for cat_col in tqdm(cat_cols, desc="WRT columns"):
+        for cat_col in cat_cols:
             main = _compute_grouped_rolling(main, group_cols=[cat_col], col=col, lag=lag, window=window, suffix=f'_wrt_{cat_col}')
         
     # Scale each stat wrt 365 day mean
