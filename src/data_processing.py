@@ -143,126 +143,6 @@ def _fe_oil(oil):
         oil[f'oilPrice_PctChange{lag}'] = oil['dcoilwtico'].pct_change(periods=lag).fillna(0).astype('float')
     return oil
 
-def _add_lag_stats_main(
-    main, 
-    stores,
-    lag=15, 
-    windows=[1, 7, 14, 28, 91, 365],  # 13 weeks is 91 days; 1 season
-    col='sales',
-):
-    """
-    Calculates lag stats with respect to the 'sales' column in 'main'.
-
-    Adds lag-window statistics relative to all stores and
-    categories from the 'stores' dataframe.
-    """
-    # Ensure the list of store categorical columns
-    cat_cols = list(stores.columns)
-
-    # Dictionary to hold new columns
-    new_cols = {}
-
-    for window in windows:
-        # Stats wrt all stores
-        new_cols[f'{col}_lag{lag}_window{window}_mean_wrt_allStores'] = 0.0
-        new_cols[f'{col}_lag{lag}_window{window}_std_wrt_allStores'] = 0.0
-        new_cols[f'{col}_lag{lag}_window{window}_min_wrt_allStores'] = 0.0
-        new_cols[f'{col}_lag{lag}_window{window}_max_wrt_allStores'] = 0.0
-
-        # Stats wrt each category in stores
-        for cat_col in cat_cols:
-            new_cols[f'{col}_lag{lag}_window{window}_mean_wrt_{cat_col}'] = 0.0
-            new_cols[f'{col}_lag{lag}_window{window}_std_wrt_{cat_col}'] = 0.0
-            new_cols[f'{col}_lag{lag}_window{window}_min_wrt_{cat_col}'] = 0.0
-            new_cols[f'{col}_lag{lag}_window{window}_max_wrt_{cat_col}'] = 0.0
-
-    # Create a DataFrame of zeros with the same number of rows as 'main'
-    zeros_df = pd.DataFrame(
-        {col_name: [value] * len(main) for col_name, value in new_cols.items()},
-        index=main.index
-    )
-
-    # Concatenate all new columns to the original DataFrame at once
-    main = pd.concat([main, zeros_df], axis=1)
-
-    return main
-
-def _add_lag_stats_main(
-    main, 
-    stores,
-    lag=15, 
-    windows=[1, 7, 14, 28, 91, 365],  # 13 weeks is 91 days; 1 season
-    col='sales',
-):
-    """
-    Efficiently computes lagged rolling statistics for `col` across all stores.
-    Each stat for row at date D is computed over range (D - lag - window, D - lag].
-    """
-
-    main = main.copy()
-    main = main.sort_values('date')
-
-    # Save index for merging later
-    main.set_index('date', inplace=True)
-
-    for window in windows:
-        # --- 1. All Stores, All Families ---
-        rolling = (
-            main[col]
-            .rolling(f'{window}D', min_periods=1)
-            .agg(['mean', 'std', 'min', 'max'])
-            .shift(lag, freq='D')
-        )
-        rolling.columns = [
-            f'{col}_lag{lag}_window{window}_{stat}'
-            for stat in ['mean', 'std', 'min', 'max']
-        ]
-        main = main.merge(rolling, left_index=True, right_index=True, how='left')
-
-        # --- 2. All Stores, Per Family ---
-        grouped = []
-
-        for family, group in main.groupby('family', observed=False):
-            rolled = (
-                group[[col]]
-                .rolling(f'{window}D', min_periods=1)
-                .agg(['mean', 'std', 'min', 'max'])
-                .shift(lag, freq='D')
-            )
-            # Flatten column names
-            rolled.columns = [
-                f'{col}_lag{lag}_window{window}_{stat}_wrt_family'
-                for stat in ['mean', 'std', 'min', 'max']
-            ]
-            rolled['family'] = family
-            grouped.append(rolled.reset_index())
-
-        rolling_by_family = pd.concat(grouped, ignore_index=True)
-        main = main.reset_index().merge(rolling_by_family, on=['date', 'family'], how='left').set_index('date')
-
-        # --- 3. Per Store, All Families ---
-        grouped = []
-        for store, group in main.groupby('store_nbr', observed=False):
-            rolled = (
-                group[[col]]
-                .rolling(f'{window}D', min_periods=1)
-                .agg(['mean', 'std', 'min', 'max'])
-                .shift(lag, freq='D')
-            )
-            rolled.columns = [
-                f'{col}_lag{lag}_window{window}_{stat}_wrt_store'
-                for stat in ['mean', 'std', 'min', 'max']
-            ]
-            rolled['store_nbr'] = store
-            grouped.append(rolled.reset_index())
-        rolling_by_store = pd.concat(grouped, ignore_index=True)
-        main = main.reset_index().merge(
-            rolling_by_store, on=['date', 'store_nbr'], how='left'
-        ).set_index('date')
-
-    main.reset_index(inplace=True)
-    return main
-
 def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_progress=False):
     """
     Compute lagged rolling stats on `col` in `main`, grouped by `group_cols`.
@@ -362,11 +242,14 @@ def _add_lag_stats_main(main, stores, lag=15, windows=[1, 7, 14, 28, 91, 365], c
     # Get categorical columns
     cat_cols = main.select_dtypes(exclude='number').columns
     
+    print("test")
     for window in windows:
+        print("test2")
         # 1. All Stores, All Families
         main = _compute_grouped_rolling(main, group_cols=[], col=col, lag=lag, window=window, suffix='')
 
         # 2. wrt cat_cols
+        print("test3")
         for cat_col in cat_cols:
             main = _compute_grouped_rolling(main, group_cols=[cat_col], col=col, lag=lag, window=window, suffix=f'_wrt_{cat_col}')
         
