@@ -152,6 +152,7 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
     result = []
 
     # If no group, treat whole DataFrame
+    print("test A")
     if not group_cols:
         rolled = (
             main[[col]]
@@ -163,6 +164,7 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
         return main.merge(rolled, left_index=True, right_index=True, how='left')
 
     # Grouped version
+    print("test B")
     grouped = main.groupby(group_cols, observed=False)
 
     for keys, group in grouped:
