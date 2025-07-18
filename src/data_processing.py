@@ -162,8 +162,7 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
         )
         print("test B")
         rolled.columns = [f"{col}_lag{lag}_window{window}_{stat}{suffix}" for stat in stats]
-        print("test C")
-        return main.merge(rolled, left_index=True, right_index=True, how='left')
+        return rolled
 
     # Grouped version
     grouped = main.groupby(group_cols, observed=False)
@@ -186,7 +185,7 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
 
         result.append(rolled.reset_index())
 
-    return main.reset_index().merge(pd.concat(result), on=['date'] + group_cols, how='left').set_index('date')
+    return rolled
 
 def _scale_lag_stats(df, lag=15, window=365, stat='mean', drop_original=True):
         """
@@ -237,7 +236,7 @@ def _add_lag_stats_main(main, stores, lag=15, windows=[1, 7, 14, 28, 91, 365], c
     main = main.sort_values('date')
     
     # Merge 'main' with 'stores' on 'store_nbr'
-    #main = main.merge(stores, on='store_nbr', how='left')
+    main = main.merge(stores, on='store_nbr', how='left')
     
     # Set 'date' as index
     main.set_index('date', inplace=True)
@@ -249,15 +248,15 @@ def _add_lag_stats_main(main, stores, lag=15, windows=[1, 7, 14, 28, 91, 365], c
     for window in windows:
         print("test2")
         # 1. All Stores, All Families
-        main = _compute_grouped_rolling(main, group_cols=[], col=col, lag=lag, window=window, suffix='')
+        rolled = _compute_grouped_rolling(main, group_cols=[], col=col, lag=lag, window=window, suffix='')
 
         # 2. wrt cat_cols
         print("test3")
         for cat_col in cat_cols:
-            main = _compute_grouped_rolling(main, group_cols=[cat_col], col=col, lag=lag, window=window, suffix=f'_wrt_{cat_col}')
+            rolled = _compute_grouped_rolling(main, group_cols=[cat_col], col=col, lag=lag, window=window, suffix=f'_wrt_{cat_col}')
         
     # Scale each stat wrt 365 day mean
-    main = _scale_lag_stats(main)
+    #main = _scale_lag_stats(main)
 
     main.reset_index(inplace=True)
     return main
