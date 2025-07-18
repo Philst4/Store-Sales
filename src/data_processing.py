@@ -359,7 +359,7 @@ def _add_lag_stats_main(main, stores, lag=15, windows=[1, 7, 14, 28, 91, 365], c
     main = main.sort_values('date')
     
     # Merge 'main' with 'stores' on 'store_nbr'
-    main = main.merge(stores, on='store_nbr', how='left')
+    #main = main.merge(stores, on='store_nbr', how='left')
     
     # Set 'date' as index
     main.set_index('date', inplace=True)
