@@ -153,38 +153,45 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
 
     # If no group, treat whole DataFrame
     if not group_cols:
-        print("test A")
+        daily_sales = (
+            main
+            .groupby('date')['sales']
+            .sum()
+            .reset_index()
+            .set_index('date')
+        )
+        
         rolled = (
-            main[[col]]
+            daily_sales[[col]]
             .rolling(f"{window}D", min_periods=1)
             .agg(stats)
-            .shift(lag, freq='D')
         )
-        print("test B")
-        rolled.columns = [f"{col}_lag{lag}_window{window}_{stat}{suffix}" for stat in stats]
-        return rolled
 
     # Grouped version
-    grouped = main.groupby(group_cols, observed=False)
-
-    for keys, group in grouped:
+    else:
+        daily_sales = (
+            main
+            .groupby(['date'] + group_cols, observed=False)[col]
+            .sum()
+            .reset_index()
+            .set_index('date')
+        )
+        
         rolled = (
-            group[[col]]
+            daily_sales
+            .groupby(group_cols, observed=False)[col]
             .rolling(f"{window}D", min_periods=1)
             .agg(stats)
-            .shift(lag, freq='D')
         )
-        rolled.columns = [f"{col}_lag{lag}_window{window}_{stat}{suffix}" for stat in stats]
+    
+    # Rename columns (doesn't include 'date', group_cols)
+    rolled.columns = [f"{col}_lag{lag}_window{window}_{stat}{suffix}" for stat in stats]
 
-        # Re-attach group keys for merge
-        if isinstance(keys, tuple):
-            for key, name in zip(keys, group_cols):
-                rolled[name] = key
-        else:
-            rolled[group_cols[0]] = keys
-
-        result.append(rolled.reset_index())
-
+    # Reset index
+    rolled = rolled.reset_index()
+    
+    # Shift dates back by 'lag'
+    rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)  # Shift dates back
     return rolled
 
 def _scale_lag_stats(df, lag=15, window=365, stat='mean', drop_original=True):
@@ -243,22 +250,63 @@ def _add_lag_stats_main(main, stores, lag=15, windows=[1, 7, 14, 28, 91, 365], c
 
     # Get categorical columns
     cat_cols = main.select_dtypes(exclude='number').columns
-    
-    print("test")
-    for window in windows:
-        print("test2")
-        # 1. All Stores, All Families
-        rolled = _compute_grouped_rolling(main, group_cols=[], col=col, lag=lag, window=window, suffix='')
 
-        # 2. wrt cat_cols
-        print("test3")
-        for cat_col in cat_cols:
-            rolled = _compute_grouped_rolling(main, group_cols=[cat_col], col=col, lag=lag, window=window, suffix=f'_wrt_{cat_col}')
+    # For keeping track of newly rolled dfs + how to merge them onto main    
+    rolls = [] # List of dataframes
+    merge_cols = [] # List of list of columns
+    rolled_cols = [] # List of columns
+    
+    for window in windows:
+        # 1. All Stores, All Families
+        rolls.append(
+            _compute_grouped_rolling(
+                main, 
+                group_cols=[], 
+                col=col, 
+                lag=lag, 
+                window=window, 
+                suffix=''
+            )
+        )
+        merge_cols.append(['date'])
+        rolled_cols += [col for col in list(rolls[-1].columns) if col != 'date']
         
+        # 2. wrt cat_cols
+        for cat_col in cat_cols:
+            rolls.append(
+                _compute_grouped_rolling(
+                    main, 
+                    group_cols=[cat_col], 
+                    col=col, 
+                    lag=lag, 
+                    window=window, 
+                    suffix=f'_wrt_{cat_col}')
+                )
+            merge_cols.append(['date', cat_col])
+            rolled_cols += [col for col in list(rolls[-1].columns) if col not in ('date', cat_col)]
+    
+    # Merge all of the rolls onto main
+    main = main.reset_index()
+    for i in range(len(rolls)):
+        main = pd.merge(
+            main,
+            rolls[i],
+            on=merge_cols[i],
+            how='left'
+        )
+        
+    # Fill N/A values of rolled columns
+    main[rolled_cols] = main[rolled_cols].fillna(0.)
+    
+    # Add feature to show how much run-way rolled stats get for each row
+    # Just how many days of previous data were available
+    min_date = main['date'].min()
+    main = main.assign(
+        n_prev_days=(main['date'] - min_date).dt.days.clip(upper=max(windows))
+    )
+    
     # Scale each stat wrt 365 day mean
     #main = _scale_lag_stats(main)
-
-    main.reset_index(inplace=True)
     return main
 
 

@@ -64,13 +64,15 @@ def main(args):
     )
 
     # Add 'is_train', 'is_test'
-    dfs['main']['is_train'] = dfs['main']['id'].isin(train_ids)
-    dfs['main']['is_test'] = dfs['main']['id'].isin(test_ids)
+    dfs['main'] = dfs['main'].assign(
+        is_train=dfs['main']['id'].isin(train_ids),
+        is_test=dfs['main']['id'].isin(test_ids)
+    )
     
     # Only for 'tests'
     if args.run_type == "test":
         # Diversify dates
-        #merged = assign_ascending_dates(merged)
+        # merged = assign_ascending_dates(merged)
         pass
     
     # Save data (along with category metadata)
