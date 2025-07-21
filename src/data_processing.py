@@ -121,7 +121,7 @@ def _days_since_last(date):
         days_since = 1 + (date - first_of_month).days
     return days_since
 
-def _fe_oil(oil):
+def _fe_oil(oil, windows_from_0, lag, windows_from_lag):
     # Mostly stuff with days
     oil = oil.sort_values(by=['date']).copy()
 
@@ -138,9 +138,29 @@ def _fe_oil(oil):
     oil['daysSincePaycheck'] = oil[['daysSince15th', 'daysSinceLast']].apply(lambda x: min(x.iloc[0], x.iloc[1]), axis=1).astype(int)
 
     # Add oil pct change since previous days, weeks, months, etc.
-    lags = [1, 2, 4, 7, 14, 28, 365]
-    for lag in lags:
-        oil[f'oilPrice_PctChange{lag}'] = oil['dcoilwtico'].pct_change(periods=lag).fillna(0).astype('float')
+    # From lag=0
+    windows_from_0 = [1, 2, 4, 7, 14]
+    for window in windows_from_0:
+        oil[f'oilPrice_PctChange_lag0_window{window}'] = (
+            oil['dcoilwtico']
+            .pct_change(periods=window)
+            .fillna(0)
+            .astype('float')
+        )
+        
+    # From lag=lag
+    """
+    lag = 16
+    windows_from_lag = [1, 7, 14, 28, 91, 365]
+    for window in windows_from_lag:
+        oil[f'oilPrice_PctChange_lag{lag}_window{window}'] = (
+            oil['dcoilwtico']
+            .pct_change(periods=window)
+            .fillna(0)
+            .astype('float')
+        )
+    """
+    
     return oil
 
 def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_progress=False):
@@ -153,23 +173,23 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
 
     # If no group, treat whole DataFrame
     if not group_cols:
-        daily_sales = (
+        daily_sum = (
             main
-            .groupby('date')['sales']
+            .groupby('date')[col]
             .sum()
             .reset_index()
             .set_index('date')
         )
         
         rolled = (
-            daily_sales[[col]]
+            daily_sum[[col]]
             .rolling(f"{window}D", min_periods=1)
             .agg(stats)
         )
 
     # Grouped version
     else:
-        daily_sales = (
+        daily_sum = (
             main
             .groupby(['date'] + group_cols, observed=False)[col]
             .sum()
@@ -178,7 +198,7 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
         )
         
         rolled = (
-            daily_sales
+            daily_sum
             .groupby(group_cols, observed=False)[col]
             .rolling(f"{window}D", min_periods=1)
             .agg(stats)
@@ -233,81 +253,63 @@ def _scale_lag_stats(df, lag=15, window=365, stat='mean', drop_original=True):
 
         return df
 
-def _add_lag_stats_main(main, stores, lag=15, windows=[1, 7, 14, 28, 91, 365], col='sales'):
+def _get_lag_stats(
+    main, 
+    lag=16, 
+    windows=[1, 7, 14, 28, 91, 365], 
+    cols=['sales'], 
+    groups=[]
+):
     """
     Efficiently computes lagged rolling statistics for `col` across different groupings.
     Each stat for row at date D is computed over range (D - lag - window, D - lag].
     """
-
+    assert 'date' in main.columns, "'date' not a column in the df"
+    
     main = main.copy()
     main = main.sort_values('date')
-    
-    # Merge 'main' with 'stores' on 'store_nbr'
-    main = main.merge(stores, on='store_nbr', how='left')
     
     # Set 'date' as index
     main.set_index('date', inplace=True)
 
-    # Get categorical columns
-    cat_cols = main.select_dtypes(exclude='number').columns
-
     # For keeping track of newly rolled dfs + how to merge them onto main    
     rolls = [] # List of dataframes
     merge_cols = [] # List of list of columns
-    rolled_cols = [] # List of columns
     
-    for window in windows:
-        # 1. All Stores, All Families
-        rolls.append(
-            _compute_grouped_rolling(
-                main, 
-                group_cols=[], 
-                col=col, 
-                lag=lag, 
-                window=window, 
-                suffix=''
-            )
-        )
-        merge_cols.append(['date'])
-        rolled_cols += [col for col in list(rolls[-1].columns) if col != 'date']
-        
-        # 2. wrt cat_cols
-        for cat_col in cat_cols:
+    for col in cols:
+        for window in windows:
+            # 1. All Stores, All Families
             rolls.append(
                 _compute_grouped_rolling(
                     main, 
-                    group_cols=[cat_col], 
+                    group_cols=[], 
                     col=col, 
                     lag=lag, 
                     window=window, 
-                    suffix=f'_wrt_{cat_col}')
+                    suffix=''
                 )
-            merge_cols.append(['date', cat_col])
-            rolled_cols += [col for col in list(rolls[-1].columns) if col not in ('date', cat_col)]
+            )
+            merge_cols.append(['date'])
+            
+            # 2. wrt cat_cols
+            for group in groups:
+                suffix = f"wrt_{'_'.join(group)}"
+                rolled = _compute_grouped_rolling(
+                    main, 
+                    group_cols=group, 
+                    col=col, 
+                    lag=lag, 
+                    window=window, 
+                    suffix=suffix
+                )
+                # Fill N/A's with 0
+                cols_to_fill = rolled.drop(columns=['date'] + group).columns
+                rolled[cols_to_fill] = rolled[cols_to_fill].fillna(0.)
+                
+                rolls.append(rolled)
+                merge_cols.append(['date'] + group)
     
-    # Merge all of the rolls onto main
-    main = main.reset_index()
-    for i in range(len(rolls)):
-        main = pd.merge(
-            main,
-            rolls[i],
-            on=merge_cols[i],
-            how='left'
-        )
-        
-    # Fill N/A values of rolled columns
-    main[rolled_cols] = main[rolled_cols].fillna(0.)
-    
-    # Add feature to show how much run-way rolled stats get for each row
-    # Just how many days of previous data were available
-    min_date = main['date'].min()
-    main = main.assign(
-        n_prev_days=(main['date'] - min_date).dt.days.clip(upper=max(windows))
-    )
-    
-    # Scale each stat wrt 365 day mean
-    #main = _scale_lag_stats(main)
-    return main
+    return rolls, merge_cols # list of dataframes, list of columns to merge
 
 
 #### Main data-processing function
@@ -316,19 +318,63 @@ def process_data(
     stores, 
     oil, 
     holidays_events,
-    main_lag=15,
-    main_windows=[1, 7, 14, 28, 91, 365] # 13 weeks is 91 days
+    windows_from_0=[1, 2, 4, 7, 14],
+    lag=16,
+    windows_from_lag=[1, 7, 14, 28, 91, 365] # 13 weeks is 91 days
 ):
     main = _fe_main(_clean_main(main))
     stores = _fe_stores(_clean_stores(stores))
-    oil = _fe_oil(_clean_oil(oil))
+    oil = _fe_oil(
+        _clean_oil(oil),
+        windows_from_0,
+        lag,
+        windows_from_lag
+    )
     holidays_events = _fe_holidays_events(
         _clean_holidays_events(
             holidays_events
             )
     )
-    main = _add_lag_stats_main(main, stores, main_lag, main_windows)
-    return main, stores, oil, holidays_events
+    
+    # Merge main and stores on store_nbr, get groups
+    main_stores = pd.merge(
+        main,
+        stores,
+        on='store_nbr',
+        how='left',
+    ) 
+    main_stores_groups = [
+        [cat_col] for cat_col in 
+        list(main_stores.select_dtypes(exclude='number').columns)
+        if cat_col != 'date'
+    ]
+    
+    # Get lag stats for 'main_stores'
+    main_stores_lag_stats, main_stores_merge_cols = _get_lag_stats(
+        main_stores, 
+        lag, 
+        windows_from_lag,
+        cols=['sales', 'log_sales'],
+        groups=main_stores_groups
+    )
+    
+    # Merge 'main_stores_lag_stats' with with 'main_stores'
+    for i in range(len(main_stores_lag_stats)):
+        main_stores = pd.merge(
+            main_stores,
+            main_stores_lag_stats[i],
+            on=main_stores_merge_cols[i],
+            how='left'
+        )
+        
+    # Add feature to show how much run-way rolled stats get for each row
+    # Just how many days of previous data were available
+    min_date = main_stores['date'].min()
+    main_stores = main_stores.assign(
+        n_prev_days=(main_stores['date'] - min_date).dt.days.clip(upper=365)
+    )
+    
+    return main_stores, stores, oil, holidays_events
 
 #### DATA-MERGING LOGIC ####
 def _fe_merge2(merge2, cols):
