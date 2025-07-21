@@ -293,7 +293,7 @@ def _get_lag_stats(
             
             # 2. wrt cat_cols
             for group in groups:
-                suffix = f"wrt_{'_'.join(group)}"
+                suffix = f"_wrt_{'_'.join(group)}"
                 rolled = _compute_grouped_rolling(
                     main, 
                     group_cols=group, 
@@ -302,9 +302,6 @@ def _get_lag_stats(
                     window=window, 
                     suffix=suffix
                 )
-                # Fill N/A's with 0
-                cols_to_fill = rolled.drop(columns=['date'] + group).columns
-                rolled[cols_to_fill] = rolled[cols_to_fill].fillna(0.)
                 
                 rolls.append(rolled)
                 merge_cols.append(['date'] + group)
@@ -359,6 +356,7 @@ def process_data(
     )
     
     # Merge 'main_stores_lag_stats' with with 'main_stores'
+    cols_to_fill = []
     for i in range(len(main_stores_lag_stats)):
         main_stores = pd.merge(
             main_stores,
@@ -366,6 +364,9 @@ def process_data(
             on=main_stores_merge_cols[i],
             how='left'
         )
+        cols_to_fill += list(main_stores_lag_stats[i].select_dtypes(include='number').columns)
+    # Fill N/A's of new columns with 0
+    main_stores[cols_to_fill] = main_stores[cols_to_fill].fillna(0.)
         
     # Add feature to show how much run-way rolled stats get for each row
     # Just how many days of previous data were available
