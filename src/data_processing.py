@@ -149,27 +149,42 @@ def _fe_oil(oil, windows_from_0, lag, windows_from_lag):
         )
         
     # From lag=lag
-    """
     lag = 16
     windows_from_lag = [1, 7, 14, 28, 91, 365]
     for window in windows_from_lag:
         oil[f'oilPrice_PctChange_lag{lag}_window{window}'] = (
             oil['dcoilwtico']
-            .pct_change(periods=window)
+            .pct_change(periods=lag+window)
             .fillna(0)
             .astype('float')
         )
-    """
+    
     
     return oil
 
-def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_progress=False):
+def _compute_grouped_rolling(
+    main, 
+    group_cols, 
+    col, 
+    lag, 
+    window, 
+    suffix, 
+    quantiles=[], 
+    show_progress=False
+):
     """
     Compute lagged rolling stats on `col` in `main`, grouped by `group_cols`.
     If group_cols is None or empty, computes globally.
     """
+    # Basic statistics we always compute
     stats = ['mean', 'std', 'min', 'max']
-    result = []
+    
+    # Add quantile calculations if specified
+    if quantiles:
+        # Convert quantiles to fractions (e.g., 90 -> 0.9)
+        quantile_stats = {f'q{q}': (q/100.0) for q in quantiles}
+    else:
+        quantile_stats = {}
 
     # If no group, treat whole DataFrame
     if not group_cols:
@@ -181,11 +196,13 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
             .set_index('date')
         )
         
-        rolled = (
-            daily_sum[[col]]
-            .rolling(f"{window}D", min_periods=1)
-            .agg(stats)
-        )
+        # Compute basic stats
+        rolled = daily_sum[[col]].rolling(f"{window}D", min_periods=1).agg(stats)
+        
+        # Compute quantiles if specified
+        if quantiles:
+            for q_name, q_value in quantile_stats.items():
+                rolled[q_name] = daily_sum[col].rolling(f"{window}D", min_periods=1).quantile(q_value)
 
     # Grouped version
     else:
@@ -197,68 +214,49 @@ def _compute_grouped_rolling(main, group_cols, col, lag, window, suffix, show_pr
             .set_index('date')
         )
         
+        # Compute basic stats
         rolled = (
             daily_sum
             .groupby(group_cols, observed=False)[col]
             .rolling(f"{window}D", min_periods=1)
             .agg(stats)
         )
-    
-    # Rename columns (doesn't include 'date', group_cols)
-    rolled.columns = [f"{col}_lag{lag}_window{window}_{stat}{suffix}" for stat in stats]
+        
+        # Compute quantiles if specified
+        if quantiles:
+            for q_name, q_value in quantile_stats.items():
+                rolled[q_name] = (
+                    daily_sum
+                    .groupby(group_cols, observed=False)[col]
+                    .rolling(f"{window}D", min_periods=1)
+                    .quantile(q_value)
+                )
 
+    # Rename columns
+    new_columns = []
+    for stat in stats:
+        new_columns.append(f"{col}_lag{lag}_window{window}_{stat}{suffix}")
+    
+    for q_name in quantile_stats.keys():
+        q_num = q_name[1:]  # Remove 'q' prefix
+        new_columns.append(f"{col}_lag{lag}_window{window}_q{q_num}{suffix}")
+    
+    rolled.columns = new_columns
+    
     # Reset index
     rolled = rolled.reset_index()
     
     # Shift dates back by 'lag'
-    rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)  # Shift dates back
+    rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)
     return rolled
-
-def _scale_lag_stats(df, lag=15, window=365, stat='mean', drop_original=True):
-        """
-        Scales all lag stats wrt corresponding f"_lag{lag}_window{window}_{stat}".
-        """
-        stats = ['mean', 'std', 'min', 'max']
-        assert stat in stats, f"{stat} not in {stats}"
-            
-        stat_cols = [col for col in df.columns if f'_lag{lag}_window' in col]
-
-        # Track which unscaled columns have matching 365-day mean columns
-        scaled_cols = {}
-        for col in stat_cols:
-            if f'_window{window}_mean' in col:
-                continue  # Don't scale the 365 mean itself
-
-            # Try to find matching 365-day mean column with same grouping suffix
-            parts = col.split('_window')
-            if len(parts) != 2:
-                continue
-            base, rest = parts
-            stat_suffix = '_'.join(rest.split('_')[1:])  # e.g. 'mean', 'mean_wrt_city'
-            denom_col = f'{base}_window{window}_mean'
-            if stat_suffix:
-                denom_col += f'_{stat_suffix}'
-
-            if denom_col in df.columns:
-                scaled_cols[col] = denom_col
-
-        # Create scaled columns
-        for col, denom_col in scaled_cols.items():
-            scaled_col = f'{col}_scaled'
-            df[scaled_col] = df[col] / df[denom_col]
-
-        # Optionally drop original unscaled stat columns (but not the 365-day means!)
-        if drop_original:
-            df.drop(columns=list(scaled_cols.keys()), inplace=True)
-
-        return df
 
 def _get_lag_stats(
     main, 
     lag=16, 
     windows=[1, 7, 14, 28, 91, 365], 
     cols=['sales'], 
-    groups=[]
+    groups=[],
+    quantiles=[0.1, 1, 5, 25, 50, 75, 95, 99, 99.9]
 ):
     """
     Efficiently computes lagged rolling statistics for `col` across different groupings.
@@ -286,7 +284,8 @@ def _get_lag_stats(
                     col=col, 
                     lag=lag, 
                     window=window, 
-                    suffix=''
+                    suffix='',
+                    quantiles=quantiles
                 )
             )
             merge_cols.append(['date'])
@@ -300,7 +299,8 @@ def _get_lag_stats(
                     col=col, 
                     lag=lag, 
                     window=window, 
-                    suffix=suffix
+                    suffix=suffix,
+                    quantiles=quantiles
                 )
                 
                 rolls.append(rolled)
