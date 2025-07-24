@@ -256,7 +256,7 @@ def _get_lag_stats(
     windows=[1, 7, 14, 28, 91, 365], 
     cols=['sales'], 
     groups=[],
-    quantiles=[0.1, 1, 5, 25, 50, 75, 95, 99, 99.9]
+    quantiles=[5, 25, 50, 75, 95]
 ):
     """
     Efficiently computes lagged rolling statistics for `col` across different groupings.
