@@ -140,7 +140,7 @@ if __name__ == "__main__":
         "--quantiles",
         type=float, 
         nargs='*', # 0 or more
-        default=[25, 50, 75],
+        default=[50],
         help="Which quantiles to include in rolling stats (between 0 and 100)"
     )
     
