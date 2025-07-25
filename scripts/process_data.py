@@ -60,7 +60,11 @@ def main(args):
         dfs['main'],
         dfs['stores'], 
         dfs['oil'], 
-        dfs['holidays_events']
+        dfs['holidays_events'],
+        windows_from_0=args.windows_from_0,
+        lag=args.lag,
+        windows_from_lag=args.windows_from_lag,
+        quantiles=args.quantiles
     )
 
     # Add 'is_train', 'is_test'
@@ -102,6 +106,42 @@ if __name__ == "__main__":
         type=str,
         default="local",
         help="Where things are stored relative to script (local or cloud)"
+    )
+    
+    parser.add_argument(
+        "--windows_from_0",
+        type=float,
+        nargs='*', # 0 or more
+        default=[1, 2, 4, 7, 14],
+        help="Which windows to take rolling stats from starting from 0 (used only for oil prices)"
+    )
+    
+    parser.add_argument(
+        "--lag",
+        type=float,
+        default=16,
+        help= (
+            "How much lag rolling stats should have (e.g. if we want" 
+            "to make rolling stats useful for 16 days out, we should" 
+            "have 'lag=16')."
+        ),
+    )
+    
+    parser.add_argument(
+        "--windows_from_lag",
+        type=float,
+        nargs='*', # 0 or more 
+        default=[1, 7, 14, 28, 91, 365],
+        help="Which windows to take rolling stats from, starting from 'lag'"
+    )
+    
+    
+    parser.add_argument(
+        "--quantiles",
+        type=float, 
+        nargs='*', # 0 or more
+        default=[25, 50, 75],
+        help="Which quantiles to include in rolling stats (between 0 and 100)"
     )
     
     args = parser.parse_args()

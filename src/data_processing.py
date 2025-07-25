@@ -11,7 +11,7 @@ def combine_train_test(train, test):
     test_ids = list(test.id)
 
     # Concat train + test -> main
-    main = pd.concat((train.copy(), test.copy()), axis=0)
+    main = pd.concat((train, test), axis=0)
     return main, train_ids, test_ids
 
 #### CLEANING PROCESSES ####
@@ -26,13 +26,11 @@ def _clean_main(main):
     return main
 
 def _clean_stores(stores):
-    stores = stores.copy()
     cat_cols = ['store_nbr', 'city', 'state', 'type', 'cluster']
     stores[cat_cols] = stores[cat_cols].astype('category')
     return stores
 
 def _clean_oil(oil):
-    oil = oil.copy()
     oil.date = pd.to_datetime(oil.date, format="%Y-%m-%d")
 
     # Fill in missing dates + add day of the week
@@ -54,8 +52,6 @@ def _clean_oil(oil):
     return oil
 
 def _clean_holidays_events(holidays_events):
-    holidays_events = holidays_events.copy()
-    
     # Deal with transfers? 
     # Every type 'transfer' corresponds to type 'holiday'
     # Will keep the uncelebrated transfer == True rows
@@ -84,8 +80,6 @@ def _fe_holidays_events(holidays_events):
     
     Main process is creating OHE's for combos of 'locale', 'locale_name', 'type'
     """
-    
-    holidays_events = holidays_events.copy()
     holidays_events['combo'] = list(
         zip(
             holidays_events['locale'], 
@@ -123,7 +117,7 @@ def _days_since_last(date):
 
 def _fe_oil(oil, windows_from_0, lag, windows_from_lag):
     # Mostly stuff with days
-    oil = oil.sort_values(by=['date']).copy()
+    oil = oil.sort_values(by=['date'])
 
     # Add day of the week, week/weekend
     oil['dayOfWeek'] = oil['date'].dt.day_name().astype('category')
@@ -162,7 +156,7 @@ def _fe_oil(oil, windows_from_0, lag, windows_from_lag):
     
     return oil
 
-def _compute_grouped_rolling(
+def _compute_rolling_stats(
     main, 
     group_cols, 
     col, 
@@ -263,8 +257,6 @@ def _get_lag_stats(
     Each stat for row at date D is computed over range (D - lag - window, D - lag].
     """
     assert 'date' in main.columns, "'date' not a column in the df"
-    
-    main = main.copy()
     main = main.sort_values('date')
     
     # Set 'date' as index
@@ -278,7 +270,7 @@ def _get_lag_stats(
         for window in windows:
             # 1. All Stores, All Families
             rolls.append(
-                _compute_grouped_rolling(
+                _compute_rolling_stats(
                     main, 
                     group_cols=[], 
                     col=col, 
@@ -293,7 +285,7 @@ def _get_lag_stats(
             # 2. wrt cat_cols
             for group in groups:
                 suffix = f"_wrt_{'_'.join(group)}"
-                rolled = _compute_grouped_rolling(
+                rolled = _compute_rolling_stats(
                     main, 
                     group_cols=group, 
                     col=col, 
@@ -317,7 +309,8 @@ def process_data(
     holidays_events,
     windows_from_0=[1, 2, 4, 7, 14],
     lag=16,
-    windows_from_lag=[1, 7, 14, 28, 91, 365] # 13 weeks is 91 days
+    windows_from_lag=[1, 7, 14, 28, 91, 365], # 13 weeks is 91 days
+    quantiles=[25, 50, 75]
 ):
     main = _fe_main(_clean_main(main))
     stores = _fe_stores(_clean_stores(stores))
@@ -352,7 +345,8 @@ def process_data(
         lag, 
         windows_from_lag,
         cols=['sales', 'log_sales'],
-        groups=main_stores_groups
+        groups=main_stores_groups,
+        quantiles=quantiles
     )
     
     # Merge 'main_stores_lag_stats' with with 'main_stores'
@@ -384,8 +378,6 @@ def _fe_merge2(merge2, cols):
     
     merge2 is merge between oil & holidays_events.
     """
-    merge2 = merge2.copy()
-    
     # Add info about previous/next few days being a holiday
 
     # Step 2: Create all shifted DataFrames
@@ -449,7 +441,7 @@ def assign_ascending_dates(merged):
     start_date = merged['date'].min()
     
     # Assign ascending dates
-    merged = merged.sort_index().copy()
+    merged = merged.sort_index()
     merged['date'] = pd.date_range(
         start=start_date, 
         periods=len(merged),
