@@ -10,21 +10,21 @@ from sklearn.metrics import root_mean_squared_error
 # Model configured to make log-predictions (predict log_sales)
 
 # Config
-NON_FEATURES = ['date', 'is_train', 'is_test', 'sales', 'log_sales']
+NON_FEATURES = ['id', 'date', 'is_train', 'is_test', 'sales', 'log_sales']
 TARGET_COL = 'log_sales'
 
 # Basic data utils
 def get_train(df):
-    return df[df['is_train'] == 1].copy()
+    return df[df['is_train'] == 1]
 
 def get_test(df):
-    return df[df['is_test'] == 1].copy()
+    return df[df['is_test'] == 1]
 
 def get_features(df):
-    return df.drop(columns=NON_FEATURES).copy()
+    return df.drop(columns=NON_FEATURES)
 
 def get_targets(df):
-    return df[TARGET_COL].copy()
+    return df[TARGET_COL]
     
 def build_fit_and_evaluate(
     X_tr, 

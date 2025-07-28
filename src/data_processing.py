@@ -3,6 +3,10 @@
 # External imports
 import pandas as pd
 import numpy as np
+import dask.dataframe as dd
+import logging
+
+logging.getLogger('distributed.shuffle').setLevel(logging.ERROR)
 
 # Just basic combination of train + test
 def combine_train_test(train, test):
@@ -87,9 +91,11 @@ def _fe_holidays_events(holidays_events):
             holidays_events['type']
         )
     )
-    ohes = pd.get_dummies(holidays_events['combo'], prefix='combo').astype(int)
+    ohes = pd.get_dummies(holidays_events['combo'], prefix='combo')
+    ohe_cols = list(ohes.columns)
     holidays_events = pd.concat([holidays_events['date'], ohes], axis=1)
     holidays_events = holidays_events.groupby('date').sum().reset_index()
+    holidays_events[ohe_cols] = holidays_events[ohe_cols].clip(lower=0, upper=1).astype('category')
     holidays_events['is_holiday_event'] = 1
     return holidays_events
 
@@ -326,13 +332,15 @@ def process_data(
             )
     )
     
-    # Merge main and stores on store_nbr, get groups
+    # Merge main and stores on store_nbr, get groups    
     main_stores = pd.merge(
         main,
         stores,
         on='store_nbr',
         how='left',
-    ) 
+    )
+    main_stores['store_nbr'] = main_stores['store_nbr'].astype('category')
+    
     main_stores_groups = [
         [cat_col] for cat_col in 
         list(main_stores.select_dtypes(exclude='number').columns)
@@ -352,23 +360,32 @@ def process_data(
     # Merge 'main_stores_lag_stats' with with 'main_stores'
     cols_to_fill = []
     for i in range(len(main_stores_lag_stats)):
+        rolling_df = main_stores_lag_stats[i]
+        merge_cols = main_stores_merge_cols[i]
+        
         main_stores = pd.merge(
             main_stores,
-            main_stores_lag_stats[i],
-            on=main_stores_merge_cols[i],
+            rolling_df,
+            on=merge_cols,
             how='left'
         )
+        
+        # Explicitly convert merge cols back to categorical columns
+        cat_cols = [col for col in merge_cols if col != 'date']
+        main_stores[cat_cols] = main_stores[cat_cols].astype('category')
+        
+        # Keep track of 'fill' cols
         cols_to_fill += list(main_stores_lag_stats[i].select_dtypes(include='number').columns)
+        
     # Fill N/A's of new columns with 0
     main_stores[cols_to_fill] = main_stores[cols_to_fill].fillna(0.)
-        
+      
     # Add feature to show how much run-way rolled stats get for each row
     # Just how many days of previous data were available
     min_date = main_stores['date'].min()
     main_stores = main_stores.assign(
         n_prev_days=(main_stores['date'] - min_date).dt.days.clip(upper=365)
     )
-    
     return main_stores, stores, oil, holidays_events
 
 #### DATA-MERGING LOGIC ####
@@ -396,30 +413,79 @@ def _fe_merge2(merge2, cols):
     merge2 = pd.concat([merge2, shifted_1next, shifted_2next, shifted_1before, shifted_2before], axis=1)
     return merge2
 
+def _fe_merge2(df, cols):
+    """
+    Adds shifted versions of holiday/oil indicators (before/after) to the merged DataFrame.
+    Compatible with both pandas and Dask.
+    """
+    is_dask = isinstance(df, dd.DataFrame)
+    concat_func = dd.concat if is_dask else pd.concat
+
+    # Ensure sorted by date before shifting
+    df = df.sort_values('date')
+
+    def shift_cols(df, shift_val, suffix):
+        shifted = df[cols].shift(shift_val).fillna(0).astype(int)
+        shifted.columns = [f"{col}_{suffix}" for col in cols]
+        return shifted
+
+    shifted_1next = shift_cols(df, -1, "1next")
+    shifted_2next = shift_cols(df, -2, "2next")
+    shifted_1before = shift_cols(df, 1, "1before")
+    shifted_2before = shift_cols(df, 2, "2before")
+
+    # Combine all
+    df = concat_func([df, shifted_1next, shifted_2next, shifted_1before, shifted_2before], axis=1)
+
+    return df
+
 def merge_all(main, stores, oil, holidays_events):
     """
-    Intended to be ran after processing the raw dataframes.
+    Merges all input DataFrames. Works for both pandas and Dask DataFrames.
     
-    This may need to be reworked, because it greatly expands
-    the size of the data. A normalized setup may be far better.
+    Assumes:
+    - main and stores are merged on 'store_nbr'
+    - oil and holidays_events are merged on 'date'
+    - final merge is on 'date'
     """
-    print(f"Merging all data...")
-    # Merge main with stores on 'store_nbr' -> merge1
-    merge1 = pd.merge(main, stores, on='store_nbr', how='left')
 
-    # Merge holiday events with oil on 'date' -> merge2
-    merge2 = pd.merge(oil, holidays_events, on='date', how='left')
+    is_dask = isinstance(main, dd.DataFrame)
 
-    # Fill N/A's in merge2
-    merge2[holidays_events.columns] = merge2[holidays_events.columns].fillna(0)
+    print(f"Merging all data using {'Dask' if is_dask else 'Pandas'}...")
 
-    # Add info about previous/next few days being a holiday
-    cols = list(holidays_events.drop(columns='date').columns) # Define columns to shift
-    merge2 = _fe_merge2(merge2, cols)
+    merge_func = dd.merge if is_dask else pd.merge
 
-    # Merge merge1 with merge2 on 'date' -> merge3
-    merge3 = pd.merge(merge1, merge2, on='date', how='left')
+    # Need to make 'store_nbr' categories align
+    if is_dask:
+        
+        # Dask-compatible categorical alignment
+        main_cats = main['store_nbr'].drop_duplicates().compute().cat.categories
+        store_cats = stores['store_nbr'].drop_duplicates().compute().cat.categories        
+        all_cats = main_cats.union(store_cats)
+        
+        # Assign all categories to each side
+        main['store_nbr'] = main['store_nbr'].cat.set_categories(all_cats)
+        stores['store_nbr'] = stores['store_nbr'].cat.set_categories(all_cats)
+        
+    merge1 = merge_func(main, stores, on='store_nbr', how='left')
+
+    # Merge oil with holidays_events on 'date'
+    merge2 = merge_func(oil, holidays_events, on='date', how='left')
+
+    # Fill NA only in holidays_events columns
+    fill_cols = holidays_events.columns.difference(['date'])
+    for col in fill_cols:
+        merge2[col] = merge2[col].fillna(0)
+    #merge2[fill_cols] = merge2[fill_cols].fillna(0)
+
+    # Shift holiday columns (this must be compatible with Dask)
+    merge2 = _fe_merge2(merge2, fill_cols)
+
+    # Final merge on 'date'
+    merge3 = merge_func(merge1, merge2, on='date', how='left')
+
     return merge3
+
 
 def assign_ascending_dates(merged):
     """

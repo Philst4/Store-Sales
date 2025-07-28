@@ -7,6 +7,8 @@ import json
 # External imports
 import yaml
 import pandas as pd
+import dask.dataframe as dd
+from pandas.api.types import CategoricalDtype
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -51,38 +53,47 @@ def save_clean_data(clean_path, dfs):
         }
         with open(os.path.join(clean_path, f"{df_name}_cat_meta.json"), "w") as f:
             json.dump(cat_meta, f)  
-    
-def load_clean_data(clean_path):
+
+def load_clean_data(clean_path, as_dask=False):
     """
-    Loads in clean data.
-    
-    Ensures that the loaded data has proper category metadata.
+    Loads clean data from disk.
+
+    Parameters:
+        clean_path (str): Path to directory containing .parquet and _cat_meta.json files
+        as_dask (bool): If True, returns Dask DataFrames; else, returns pandas
+
+    Returns:
+        dict[str, DataFrame]: Dict containing 'main', 'stores', 'oil', 'holidays_events'
     """
-    print(f"Loading clean data from '{clean_path}'...")
+    print(f"Loading clean {'Dask' if as_dask else 'Pandas'} data from '{clean_path}'...")
     
-    # Load in data
     clean_df_names = ['main', 'stores', 'oil', 'holidays_events']
     clean_dfs = {}
+
     for df_name in clean_df_names:
-        # Load in df
-        clean_df = pd.read_parquet(
-            os.path.join(
-                clean_path, 
-                f'{df_name}.parquet'
-            ), 
-            engine="pyarrow"
-        )
-    
-        # Load in category metadata
-        with open(os.path.join(clean_path, f"{df_name}_cat_meta.json"), "r") as f:
+        # Load the parquet file using pandas or dask
+        parquet_path = os.path.join(clean_path, f'{df_name}.parquet')
+        if as_dask:
+            df = dd.read_parquet(parquet_path, engine="pyarrow")
+        else:
+            df = pd.read_parquet(parquet_path, engine="pyarrow")
+
+        # Load category metadata
+        cat_meta_path = os.path.join(clean_path, f"{df_name}_cat_meta.json")
+        with open(cat_meta_path, "r") as f:
             cat_meta = json.load(f)
-        
-        # Assign category metadata to df
+
+        # Apply categorical metadata
         for col, cats in cat_meta.items():
-            clean_df[col] = pd.Categorical(clean_df[col], categories=cats)
-            
-        # Save in df dict
-        clean_dfs[df_name] = clean_df
+            cat_type = CategoricalDtype(categories=cats, ordered=False)
+            if as_dask:
+                df[col] = df[col].astype(cat_type)
+            else:
+                df[col] = pd.Categorical(df[col], categories=cats)
+
+        # Save the df to the dictionary
+        clean_dfs[df_name] = df
+
     return clean_dfs
 
 def load_experiment_config(experiment_config_path):

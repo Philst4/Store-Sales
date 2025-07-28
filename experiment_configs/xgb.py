@@ -33,10 +33,6 @@ def build_model(X_sample, hyperparams):
         ],
         remainder='drop'  # drop any columns not listed in transformers
     )
-    
-    # Build predictor
-    hyperparams['tree_method'] = "hist"
-    hyperparams['device'] = DEVICE
 
     # Wrap in pipeline
     # What this does, is preprocesses the data, then fits the model
@@ -59,4 +55,7 @@ def make_hyperparam_space(trial):
         'colsample_bytree' : trial.suggest_float('colsample_bytree', 0.5, 1.0),
         'reg_lambda' : trial.suggest_float('reg_lambda', 0, 10),
         'gamma' : trial.suggest_float('gamma', 0, 5),    
+        'tree_method' : 'hist',
+        'enable_categorical' : True,
+        'device' : DEVICE
     }
