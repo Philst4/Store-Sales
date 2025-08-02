@@ -11,11 +11,15 @@ logging.getLogger('distributed.shuffle').setLevel(logging.ERROR)
 # Just basic combination of train + test
 def combine_train_test(train, test):
     # Keep track of train + test ids
-    train_ids = list(train.id)
-    test_ids = list(test.id)
+    train_ids = train['id'].compute().tolist()
+    test_ids = test['id'].compute().to_list()
 
     # Concat train + test -> main
-    main = pd.concat((train, test), axis=0)
+    main = dd.concat([train, test], axis=0)
+    main = main.assign(
+        is_train=main['id'].isin(train_ids).astype(int),
+        is_test=main['id'].isin(test_ids).astype(int)
+    )
     return main, train_ids, test_ids
 
 #### CLEANING PROCESSES ####
@@ -23,24 +27,26 @@ def combine_train_test(train, test):
 def _clean_main(main):
     # Make store_nbr, family into categorical
     cat_features = ['store_nbr', 'family']
-    main[cat_features] = main[cat_features].astype('category')
+    main = main.categorize(columns=cat_features)
 
     # Convert date
-    main['date'] = pd.to_datetime(main['date'], format="%Y-%m-%d")
+    main['date'] = dd.to_datetime(main['date'], format="%Y-%m-%d")
     return main
 
 def _clean_stores(stores):
     cat_cols = ['store_nbr', 'city', 'state', 'type', 'cluster']
-    stores[cat_cols] = stores[cat_cols].astype('category')
+    stores = stores.categorize(columns=cat_cols)
     return stores
 
 def _clean_oil(oil):
-    oil.date = pd.to_datetime(oil.date, format="%Y-%m-%d")
+    oil.date = dd.to_datetime(oil.date, format="%Y-%m-%d")
 
     # Fill in missing dates + add day of the week
-    date_range = pd.date_range(start=oil.date.min(), end=oil.date.max(), freq='D')
-    dates = pd.DataFrame({'date' : date_range})
-    oil = pd.merge(
+    # Fill missing dates (requires compute for date range)
+    min_date, max_date = oil['date'].min().compute(), oil['date'].max().compute()
+    date_range = pd.date_range(start=min_date, end=max_date, freq='D')
+    dates = dd.from_pandas(pd.DataFrame({'date': date_range}), npartitions=1)
+    oil = dd.merge(
         oil, 
         dates,
         on='date',
@@ -60,14 +66,15 @@ def _clean_holidays_events(holidays_events):
     # Every type 'transfer' corresponds to type 'holiday'
     # Will keep the uncelebrated transfer == True rows
     # Will change the celebrated type == 'transfer' rows to holiday type
-    holidays_events.loc[holidays_events['type'] == 'Transfer', 'type'] = 'Holiday'
-
-    # Convert categorical features
+    holidays_events['type'] = holidays_events['type'].mask(
+        holidays_events['type'] == 'Transfer', 'Holiday')
+    
+    # Convert categoricals
     cat_features = ['type', 'locale', 'locale_name', 'description']
-    holidays_events[cat_features] = holidays_events[cat_features].astype('category')
-
+    holidays_events = holidays_events.categorize(columns=cat_features)
+    
     # Convert date
-    holidays_events['date'] = pd.to_datetime(holidays_events['date'], format="%Y-%m-%d")
+    holidays_events['date'] = dd.to_datetime(holidays_events['date'], format="%Y-%m-%d")
     return holidays_events
 
 #### FEATURE ENGINEERING PROCESSES ####
@@ -84,6 +91,8 @@ def _fe_holidays_events(holidays_events):
     
     Main process is creating OHE's for combos of 'locale', 'locale_name', 'type'
     """
+    holidays_events = holidays_events.compute()
+    
     holidays_events['combo'] = list(
         zip(
             holidays_events['locale'], 
@@ -97,7 +106,7 @@ def _fe_holidays_events(holidays_events):
     holidays_events = holidays_events.groupby('date').sum().reset_index()
     holidays_events[ohe_cols] = holidays_events[ohe_cols].clip(lower=0, upper=1).astype('category')
     holidays_events['is_holiday_event'] = 1
-    return holidays_events
+    return dd.from_pandas(holidays_events, npartitions=1)
 
 def _fe_stores(stores):
     return stores
@@ -122,6 +131,9 @@ def _days_since_last(date):
     return days_since
 
 def _fe_oil(oil, windows_from_0, lag, windows_from_lag):
+    # Convert to dataframe
+    oil = oil.compute()
+    
     # Mostly stuff with days
     oil = oil.sort_values(by=['date'])
 
@@ -158,9 +170,29 @@ def _fe_oil(oil, windows_from_0, lag, windows_from_lag):
             .fillna(0)
             .astype('float')
         )
-    
-    
-    return oil
+    return dd.from_pandas(oil)
+
+def process_main(main):
+    return _fe_main(_clean_main(main))
+
+def process_stores(stores):
+    return _fe_stores(_clean_stores(stores))
+
+def process_oil(
+    oil,
+    windows_from_0=[1, 2, 4, 7, 14],
+    lag=16,
+    windows_from_lag=[1, 7, 28, 91, 365]
+):
+    return _fe_oil(
+        _clean_oil(oil), 
+        windows_from_0, 
+        lag, 
+        windows_from_lag
+    )
+
+def process_holidays_events(holidays_events):
+    return _fe_holidays_events(_clean_holidays_events(holidays_events))
 
 def _compute_rolling_stats(
     main, 
@@ -168,7 +200,6 @@ def _compute_rolling_stats(
     col, 
     lag, 
     window, 
-    suffix, 
     quantiles=[], 
     show_progress=False
 ):
@@ -233,6 +264,7 @@ def _compute_rolling_stats(
                 )
 
     # Rename columns
+    suffix = f"_wrt_{'_'.join(group_cols)}"
     new_columns = []
     for stat in stats:
         new_columns.append(f"{col}_lag{lag}_window{window}_{stat}{suffix}")
@@ -249,6 +281,113 @@ def _compute_rolling_stats(
     # Shift dates back by 'lag'
     rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)
     return rolled
+
+
+
+def compute_rolling_stats(
+    main, 
+    group_cols, 
+    rolling_cols, 
+    lag, 
+    window, 
+    quantiles=[], 
+    suffix="",
+    show_progress=False
+):
+    """
+    Compute lagged rolling stats on columns in `rolling_cols` in `main`, grouped by `group_cols`.
+    If group_cols is None or empty, computes globally.
+    
+    Assumes 'date' is index.
+    """
+    
+    # need to be a pd.dataframe for now
+    if isinstance(main, dd.DataFrame):
+        main = main.compute()
+    
+    # Basic statistics we always compute
+    stats = ['mean', 'std', 'min', 'max']
+    
+    # Add quantile calculations if specified
+    if quantiles:
+        # Convert quantiles to fractions (e.g., 90 -> 0.9)
+        quantile_stats = {f'q{q}': (q/100.0) for q in quantiles}
+    else:
+        quantile_stats = {}
+
+    # If no group, treat whole DataFrame
+    if not group_cols:
+        daily_sum = (
+            main
+            .groupby('date')[rolling_cols]
+            .sum()
+            .reset_index()
+            .set_index('date')
+        )
+        
+        # Compute basic stats for all columns at once
+        rolled = daily_sum[rolling_cols].rolling(f"{window}D", min_periods=1).agg(stats)
+        
+        # Compute quantiles if specified
+        if quantiles:
+            for q_name, q_value in quantile_stats.items():
+                for col in rolling_cols:
+                    rolled["_".join([col, q_name])] = daily_sum[col].rolling(f"{window}D", min_periods=1).quantile(q_value)
+
+    # Grouped version
+    else:
+        daily_sum = (
+            main
+            .groupby(['date'] + group_cols, observed=False)[rolling_cols]
+            .sum()
+            .reset_index()
+            .set_index('date')
+        )
+        
+        # Compute basic stats for all columns at once
+        rolled = (
+            daily_sum
+            .groupby(group_cols, observed=False)[rolling_cols]
+            .rolling(f"{window}D", min_periods=1)
+            .agg(stats)
+        )
+        
+        # Compute quantiles if specified
+        if quantiles:
+            for q_name, q_value in quantile_stats.items():
+                for col in rolling_cols:
+                    rolled["_".join([col, q_name])] = (
+                        daily_sum
+                        .groupby(group_cols, observed=False)[col]
+                        .rolling(f"{window}D", min_periods=1)
+                        .quantile(q_value)
+                    )
+
+    # Flatten MultiIndex columns and create proper names
+    new_columns = []
+    
+    # Handle basic stats
+    for col in rolling_cols:
+        for stat in stats:
+            new_columns.append(f"{col}_lag{lag}_window{window}_{stat}{suffix}")
+    
+    # Handle quantiles
+    if quantiles:
+        for col in rolling_cols:
+            for q_name in quantile_stats.keys():
+                q_num = q_name[1:]  # Remove 'q' prefix
+                new_columns.append(f"{col}_lag{lag}_window{window}_q{q_num}{suffix}")
+    
+    # Reset index, rename columns
+    rolled.columns = ['_'.join(col).strip() for col in rolled.columns]
+    rolled.columns = new_columns
+    rolled = rolled.reset_index()
+
+    # Shift dates back by 'lag'
+    rolled['date'] = pd.to_datetime(rolled['date'], format="%Y-%m-%d")
+    rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)
+    
+    return dd.from_pandas(rolled, npartitions=1)
 
 def _get_lag_stats(
     main, 

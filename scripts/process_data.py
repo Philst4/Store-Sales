@@ -5,17 +5,26 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import argparse
 
 # External imports
+import pandas as pd
 import numpy as np
+import dask.dataframe as dd
+from dask.distributed import Client
 
 # Internal imports
 from src.io_utils import (
     load_config, 
     get_data_paths,
     load_raw_data,
+    save_as_parquet,
     save_clean_data
 )
 from src.data_processing import (
     combine_train_test,
+    process_main,
+    process_stores,
+    process_oil,
+    process_holidays_events,
+    compute_rolling_stats,
     process_data,
     assign_ascending_dates
 )
@@ -36,6 +45,15 @@ def main(args):
     
     print("Running pipeline...")
     
+    # Initialize Dask client
+    client = Client()
+    
+    # WILL BE ARGS
+    windows_from_0 = [1, 2, 4, 7, 14]
+    lag = 16
+    windows_from_lag = [1, 7, 28, 91, 365]
+    quantiles= [25, 50, 75]
+    
     # Check args
     check_args(args)
     
@@ -46,8 +64,90 @@ def main(args):
     RAW_DATA_PATH, CLEAN_DATA_PATH = get_data_paths(args.storage_mode, config)
     
     # Load in data
-    dfs = load_raw_data(RAW_DATA_PATH)
+    # TODO CHANGE LOGIC HERE... LOAD IN EACH DATASET SEPARATELY
     
+    # (1) Load/process/save train/test -> main
+    print(f"Processing 'train'/'test' -> 'main'...")
+    train = dd.read_csv(os.path.join(RAW_DATA_PATH, "train.csv"))
+    test = dd.read_csv(os.path.join(RAW_DATA_PATH, "test.csv"))
+    main, _, _ = combine_train_test(train, test)
+    del train
+    del test
+    main = process_main(main)
+    save_as_parquet(main, "main", CLEAN_DATA_PATH)
+    del main
+    
+    # (2) Load/process/save stores
+    print(f"Processing 'stores'...")
+    stores = dd.read_csv(os.path.join(RAW_DATA_PATH, "stores.csv"))
+    stores = process_stores(stores)
+    save_as_parquet(stores, "stores", CLEAN_DATA_PATH)
+    del stores
+    
+    # (3) Load/process/save oil
+    print(f"Processing 'oil'...")
+    oil = dd.read_csv(os.path.join(RAW_DATA_PATH, "oil.csv"))
+    oil = process_oil(
+        oil,
+        windows_from_0=windows_from_0,
+        lag=lag,
+        windows_from_lag=windows_from_lag
+    )
+    save_as_parquet(oil, "oil", CLEAN_DATA_PATH)
+    del oil
+    
+    # (4) Load/process/save holidays_events
+    print(f"Processing 'holidays_events'...")
+    holidays_events = dd.read_csv(os.path.join(RAW_DATA_PATH, "holidays_events.csv"))
+    holidays_events = process_holidays_events(holidays_events)
+    save_as_parquet(holidays_events, "holidays_events", CLEAN_DATA_PATH)
+    del holidays_events
+    
+    # (5) Compute rolling stats using main + stores
+    print(f"Computing rolling stats using 'main' and 'stores'...")
+    
+    # Load in both, merge
+    main = dd.read_parquet(os.path.join(CLEAN_DATA_PATH, "main.parquet"), engine="pyarrow")
+    stores = dd.read_parquet(os.path.join(CLEAN_DATA_PATH, "stores.parquet"), engine="pyarrow")
+    main_stores = dd.merge(
+        main,
+        stores,
+        on='store_nbr',
+        how='left'
+    ).set_index('date')
+    del main
+    del stores
+    
+    # Get groups
+    main_stores_groups = [
+        [cat_col] for cat_col in 
+        list(main_stores.select_dtypes(exclude='number').columns)
+        if cat_col not in ('date', 'is_train', 'is_test')
+    ]
+    main_stores_groups.append([])
+    
+    # Calculate rolling stats wrt each group, window
+    for group_cols in main_stores_groups:
+        suffix = f"_wrt_{'_'.join(group_cols)}" if group_cols else ""
+        for window in windows_from_lag:
+            
+            # Calculate rolling stats
+            rolling_stats = compute_rolling_stats(
+                main_stores, 
+                group_cols=group_cols,
+                rolling_cols=['sales', 'log_sales'],
+                lag=lag,
+                window=window,
+                quantiles=quantiles,
+                suffix=suffix
+            )
+            
+            # Save rolling stats
+            file_name = f"rolling_lag{lag}_window{window}{suffix}"
+            save_as_parquet(rolling_stats, file_name, CLEAN_DATA_PATH)
+            #del rolling_stats
+
+    return
     # Do processing
     dfs['main'], train_ids, test_ids = combine_train_test(
         dfs['train'],

@@ -53,6 +53,41 @@ def save_clean_data(clean_path, dfs):
         }
         with open(os.path.join(clean_path, f"{df_name}_cat_meta.json"), "w") as f:
             json.dump(cat_meta, f)  
+            
+def save_as_parquet(df, file_name, save_dir):
+    """
+    Saves data as parquet, along with the categorical metadata.
+    """
+    
+    # Make path
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    # Save data
+    print(f"Saving '{file_name}.parquet' to '{save_dir}'...")
+    file_path = os.path.join(save_dir, f"{file_name}.parquet")
+    
+    df = df.reset_index()
+    df.to_parquet(
+        file_path,
+        engine='pyarrow',
+        schema='infer',  # Let pyarrow infer schema
+        write_index=False,
+        overwrite=True
+    )
+    
+    # Save categorical metadata
+    print(f"Saving '{file_name}_cat_meta.json' to '{save_dir}'...")
+    cat_columns = df.select_dtypes(include='category').columns.tolist()
+    cat_meta = {
+        col: list(df[col].cat.categories)
+        for col in cat_columns
+    }
+    with open(os.path.join(save_dir, f"{file_name}_cat_meta.json"), "w") as f:
+        json.dump(cat_meta, f)
+
+def load_from_parquet(file_name, load_dir):
+    pass  
 
 def load_clean_data(clean_path, as_dask=False):
     """
