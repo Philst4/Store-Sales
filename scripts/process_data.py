@@ -3,6 +3,7 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import argparse
+import json
 
 # External imports
 import pandas as pd
@@ -14,9 +15,8 @@ from dask.distributed import Client
 from src.io_utils import (
     load_config, 
     get_data_paths,
-    load_raw_data,
     save_as_parquet,
-    save_clean_data
+    save_cat_meta,
 )
 from src.data_processing import (
     combine_train_test,
@@ -62,29 +62,57 @@ def main(args):
     
     # Get data paths
     RAW_DATA_PATH, CLEAN_DATA_PATH = get_data_paths(args.storage_mode, config)
+    if not os.path.exists(CLEAN_DATA_PATH):
+        os.makedirs(CLEAN_DATA_PATH)
     
     # Load in data
     # TODO CHANGE LOGIC HERE... LOAD IN EACH DATASET SEPARATELY
     
-    # (1) Load/process/save train/test -> main
+    # Keep track of a manifest file
+    manifest = {
+        "main_data" : None,
+        "secondary_data" : [],
+        "rolling_stats" : [],
+    }
+    
+    
+    # (1) Load/process/save train/test -> main; add to manifest
     print(f"Processing 'train'/'test' -> 'main'...")
     train = dd.read_csv(os.path.join(RAW_DATA_PATH, "train.csv"))
     test = dd.read_csv(os.path.join(RAW_DATA_PATH, "test.csv"))
     main, _, _ = combine_train_test(train, test)
-    del train
-    del test
     main = process_main(main)
-    save_as_parquet(main, "main", CLEAN_DATA_PATH)
-    del main
+    parquet_path = os.path.join(CLEAN_DATA_PATH, "main.parquet")
+    save_as_parquet(main, parquet_path)
+    cat_meta_path = os.path.join(CLEAN_DATA_PATH, "main_cat_meta.json")
+    save_cat_meta(main, cat_meta_path)
+    manifest['main_data'] = (
+        {
+            "name" : "main",
+            "parquet_path" : parquet_path,
+            "cat_meta_path" : cat_meta_path,
+            "merge_cols" : []
+        }
+    )
     
-    # (2) Load/process/save stores
+    # (2) Load/process/save stores; track in manifest
     print(f"Processing 'stores'...")
     stores = dd.read_csv(os.path.join(RAW_DATA_PATH, "stores.csv"))
     stores = process_stores(stores)
-    save_as_parquet(stores, "stores", CLEAN_DATA_PATH)
-    del stores
+    parquet_path = os.path.join(CLEAN_DATA_PATH, "stores.parquet")
+    save_as_parquet(stores, parquet_path)
+    cat_meta_path = os.path.join(CLEAN_DATA_PATH, "stores_cat_meta.json")
+    save_cat_meta(stores, cat_meta_path)
+    manifest['secondary_data'].append(
+        {
+            "name" : "stores",
+            "parquet_path" : parquet_path,
+            "cat_meta_path" : cat_meta_path,
+            "merge_cols" : ["store_nbr"]
+        }
+    )
     
-    # (3) Load/process/save oil
+    # (3) Load/process/save oil; track in manifest
     print(f"Processing 'oil'...")
     oil = dd.read_csv(os.path.join(RAW_DATA_PATH, "oil.csv"))
     oil = process_oil(
@@ -93,17 +121,37 @@ def main(args):
         lag=lag,
         windows_from_lag=windows_from_lag
     )
-    save_as_parquet(oil, "oil", CLEAN_DATA_PATH)
-    del oil
+    parquet_path = os.path.join(CLEAN_DATA_PATH, "oil.parquet")
+    save_as_parquet(oil, parquet_path)
+    cat_meta_path = os.path.join(CLEAN_DATA_PATH, "oil_cat_meta.json")
+    save_cat_meta(oil, cat_meta_path)
+    manifest['secondary_data'].append(
+        {
+            "name" : "oil",
+            "parquet_path" : parquet_path,
+            "cat_meta_path" : cat_meta_path,
+            "merge_cols" : ["date"]
+        }
+    )
     
-    # (4) Load/process/save holidays_events
+    # (4) Load/process/save holidays_events; track in manifest...
     print(f"Processing 'holidays_events'...")
     holidays_events = dd.read_csv(os.path.join(RAW_DATA_PATH, "holidays_events.csv"))
     holidays_events = process_holidays_events(holidays_events)
-    save_as_parquet(holidays_events, "holidays_events", CLEAN_DATA_PATH)
-    del holidays_events
+    parquet_path = os.path.join(CLEAN_DATA_PATH, "holidays_events.parquet")
+    save_as_parquet(holidays_events, parquet_path)
+    cat_meta_path = os.path.join(CLEAN_DATA_PATH, "holidays_events_cat_meta.json")
+    save_cat_meta(holidays_events, cat_meta_path)
+    manifest['secondary_data'].append(
+        {
+            "name" : "holidays_events",
+            "parquet_path" : parquet_path,
+            "cat_meta_path" : cat_meta_path,
+            "merge_cols" : ["date"]
+        }
+    )
     
-    # (5) Compute rolling stats using main + stores
+    # (5) Compute rolling stats using main + stores; track in manifest
     print(f"Computing rolling stats using 'main' and 'stores'...")
     
     # Load in both, merge
@@ -115,8 +163,6 @@ def main(args):
         on='store_nbr',
         how='left'
     ).set_index('date')
-    del main
-    del stores
     
     # Get groups
     main_stores_groups = [
@@ -144,45 +190,28 @@ def main(args):
             
             # Save rolling stats
             file_name = f"rolling_lag{lag}_window{window}{suffix}"
-            save_as_parquet(rolling_stats, file_name, CLEAN_DATA_PATH)
-            #del rolling_stats
+            parquet_path = os.path.join(CLEAN_DATA_PATH, f"{file_name}.parquet")
+            save_as_parquet(rolling_stats, parquet_path)
+            cat_meta_path = os.path.join(CLEAN_DATA_PATH, f"{file_name}_cat_meta.json")
+            save_cat_meta(rolling_stats, cat_meta_path)
+            
+            # Track in manifest file
+            manifest['rolling_stats'].append(
+                {
+                    "name" : file_name,
+                    "parquet_path" : parquet_path,
+                    "cat_meta_path" : cat_meta_path,
+                    "merge_cols" : ["date"] + group_cols,
+                }
+            )
+    
+    # (6) Save manifest file
+    manifest_path = os.path.join(CLEAN_DATA_PATH, "manifest.json")
+    print(f"Saving '{manifest_path}'...")
+    with open(os.path.join(CLEAN_DATA_PATH, "manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
 
-    return
-    # Do processing
-    dfs['main'], train_ids, test_ids = combine_train_test(
-        dfs['train'],
-        dfs['test']
-    )
-    del dfs['train']
-    del dfs['test']
-    
-    dfs['main'], dfs['stores'], dfs['oil'], dfs['holidays_events'] = process_data(
-        dfs['main'],
-        dfs['stores'], 
-        dfs['oil'], 
-        dfs['holidays_events'],
-        windows_from_0=args.windows_from_0,
-        lag=args.lag,
-        windows_from_lag=args.windows_from_lag,
-        quantiles=args.quantiles
-    )
-
-    # Add 'is_train', 'is_test'
-    dfs['main'] = dfs['main'].assign(
-        is_train=dfs['main']['id'].isin(train_ids),
-        is_test=dfs['main']['id'].isin(test_ids)
-    )
-    
-    # Only for 'tests'
-    if args.run_type == "test":
-        # Diversify dates
-        # merged = assign_ascending_dates(merged)
-        pass
-    
-    # Save data (along with category metadata)
-    save_clean_data(CLEAN_DATA_PATH, dfs)
-    pass
-    
+    client.close()
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Data Processing Script")

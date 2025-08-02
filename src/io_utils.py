@@ -10,6 +10,10 @@ import pandas as pd
 import dask.dataframe as dd
 from pandas.api.types import CategoricalDtype
 
+import warnings
+warnings.filterwarnings("ignore", message=".*Merging dataframes with merge column data type mismatches.*")
+
+
 def load_config():
     with open("config.yaml", "r") as f:
         return yaml.safe_load(f)
@@ -19,117 +23,86 @@ def get_data_paths(storage_mode, config):
     raw_path = config['storage_mode'][storage_mode]['data']['raw']
     clean_path = config['storage_mode'][storage_mode]['data']['clean']
     return raw_path, clean_path
-
-def load_raw_data(raw_path):
-    print(f"Reading data from '{raw_path}'...")
-    dfs = {}
-    
-    dfs['train'] = pd.read_csv(os.path.join(raw_path, "train.csv"))
-    dfs['test'] = pd.read_csv(os.path.join(raw_path, "test.csv"))
-    dfs['stores'] = pd.read_csv(os.path.join(raw_path, "stores.csv"))
-    dfs['oil'] = pd.read_csv(os.path.join(raw_path, "oil.csv"))
-    dfs['holidays_events'] = pd.read_csv(os.path.join(raw_path, "holidays_events.csv"))
-    return dfs
-
-def save_clean_data(clean_path, dfs):
-    """
-    Saves data, as well as categorical metadata.
-    """
-    print(f"Saving data to '{clean_path}'...")
-    
-    # Make path
-    if not os.path.exists(clean_path):
-        os.makedirs(clean_path)
-    
-    # Save data
-    for df_name, df in dfs.items():
-        df.to_parquet(os.path.join(clean_path, f"{df_name}.parquet"), index=False)
-    
-        # Save categorical metadata
-        cat_columns = df.select_dtypes(include='category').columns.tolist()
-        cat_meta = {
-            col: list(df[col].cat.categories)
-            for col in cat_columns
-        }
-        with open(os.path.join(clean_path, f"{df_name}_cat_meta.json"), "w") as f:
-            json.dump(cat_meta, f)  
             
-def save_as_parquet(df, file_name, save_dir):
+def save_as_parquet(df, save_path):
     """
-    Saves data as parquet, along with the categorical metadata.
+    Saves data as parquet
     """
-    
-    # Make path
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    
     # Save data
-    print(f"Saving '{file_name}.parquet' to '{save_dir}'...")
-    file_path = os.path.join(save_dir, f"{file_name}.parquet")
-    
-    df = df.reset_index()
+    print(f"Saving '{save_path}'...")
+    df = df.reset_index(drop=True)
     df.to_parquet(
-        file_path,
+        save_path,
         engine='pyarrow',
         schema='infer',  # Let pyarrow infer schema
         write_index=False,
         overwrite=True
     )
-    
+        
+def save_cat_meta(df, save_path):
     # Save categorical metadata
-    print(f"Saving '{file_name}_cat_meta.json' to '{save_dir}'...")
+    print(f"Saving '{save_path}'...")
     cat_columns = df.select_dtypes(include='category').columns.tolist()
     cat_meta = {
         col: list(df[col].cat.categories)
         for col in cat_columns
     }
-    with open(os.path.join(save_dir, f"{file_name}_cat_meta.json"), "w") as f:
+    with open(save_path, "w") as f:
         json.dump(cat_meta, f)
 
-def load_from_parquet(file_name, load_dir):
-    pass  
-
-def load_clean_data(clean_path, as_dask=False):
-    """
-    Loads clean data from disk.
-
-    Parameters:
-        clean_path (str): Path to directory containing .parquet and _cat_meta.json files
-        as_dask (bool): If True, returns Dask DataFrames; else, returns pandas
-
-    Returns:
-        dict[str, DataFrame]: Dict containing 'main', 'stores', 'oil', 'holidays_events'
-    """
-    print(f"Loading clean {'Dask' if as_dask else 'Pandas'} data from '{clean_path}'...")
+def load_from_parquet(parquet_path, cat_meta_path):
     
-    clean_df_names = ['main', 'stores', 'oil', 'holidays_events']
-    clean_dfs = {}
+    # Load in parquet file
+    ddf = dd.read_parquet(parquet_path, engine="pyarrow")
 
-    for df_name in clean_df_names:
-        # Load the parquet file using pandas or dask
-        parquet_path = os.path.join(clean_path, f'{df_name}.parquet')
-        if as_dask:
-            df = dd.read_parquet(parquet_path, engine="pyarrow")
-        else:
-            df = pd.read_parquet(parquet_path, engine="pyarrow")
-
-        # Load category metadata
-        cat_meta_path = os.path.join(clean_path, f"{df_name}_cat_meta.json")
+    # Apply categorical metadata (try)
+    try:
         with open(cat_meta_path, "r") as f:
             cat_meta = json.load(f)
+    except:
+        return ddf
+    
+    for col, cats in cat_meta.items():
+        cat_type = CategoricalDtype(categories=cats, ordered=False)
+        ddf[col] = ddf[col].astype(cat_type)
 
-        # Apply categorical metadata
-        for col, cats in cat_meta.items():
-            cat_type = CategoricalDtype(categories=cats, ordered=False)
-            if as_dask:
-                df[col] = df[col].astype(cat_type)
-            else:
-                df[col] = pd.Categorical(df[col], categories=cats)
+    return ddf
 
-        # Save the df to the dictionary
-        clean_dfs[df_name] = df
+def load_and_merge_from_manifest(manifest_path):
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
+        
+    # Load main table
+    main_parquet_path = manifest["main_data"]["parquet_path"]
+    main_cat_meta_path = manifest["main_data"]["cat_meta_path"]
+    main_ddf = load_from_parquet(main_parquet_path, main_cat_meta_path)
+    
+    # Iterate merging secondary data
+    for meta in manifest["secondary_data"]:
+        secondary_ddf = load_from_parquet(
+            meta["parquet_path"], 
+            meta["cat_meta_path"]
+        )
+                
+        main_ddf = main_ddf.merge(
+            secondary_ddf,
+            on=meta["merge_cols"],
+            how="left"
+        )
 
-    return clean_dfs
+    # Iterate merging rolling data
+    for meta in manifest["rolling_stats"]:
+        rolling_ddf = load_from_parquet(
+            meta["parquet_path"], 
+            meta["cat_meta_path"]
+        )
+        main_ddf = main_ddf.merge(
+            rolling_ddf,
+            on=meta["merge_cols"],
+            how="left"
+        )
+    
+    return main_ddf
 
 def load_experiment_config(experiment_config_path):
     print(f"Loading experiment config from '{experiment_config_path}'...")
