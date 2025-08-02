@@ -455,7 +455,7 @@ def process_data(
     windows_from_0=[1, 2, 4, 7, 14],
     lag=16,
     windows_from_lag=[1, 7, 14, 28, 91, 365], # 13 weeks is 91 days
-    quantiles=[0.1, 1, 5, 25, 50, 75, 95, 99, 99.9]
+    quantiles=[50]
 ):
     main = _fe_main(_clean_main(main))
     stores = _fe_stores(_clean_stores(stores))

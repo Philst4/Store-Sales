@@ -52,7 +52,7 @@ def main(args):
     windows_from_0 = [1, 2, 4, 7, 14]
     lag = 16
     windows_from_lag = [1, 7, 28, 91, 365]
-    quantiles= [25, 50, 75]
+    quantiles = [0.1, 1, 5, 25, 50, 75, 95, 99, 99.9]
     
     # Check args
     check_args(args)

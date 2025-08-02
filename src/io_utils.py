@@ -50,32 +50,35 @@ def save_cat_meta(df, save_path):
     with open(save_path, "w") as f:
         json.dump(cat_meta, f)
 
-def load_from_parquet(parquet_path, cat_meta_path):
+def load_from_parquet(parquet_path, cat_meta_path=None):
     
     # Load in parquet file
     ddf = dd.read_parquet(parquet_path, engine="pyarrow")
 
     # Apply categorical metadata (try)
-    try:
-        with open(cat_meta_path, "r") as f:
-            cat_meta = json.load(f)
-    except:
-        return ddf
-    
-    for col, cats in cat_meta.items():
-        cat_type = CategoricalDtype(categories=cats, ordered=False)
-        ddf[col] = ddf[col].astype(cat_type)
+    if cat_meta_path:
+        try:
+            with open(cat_meta_path, "r") as f:
+                cat_meta = json.load(f)
+
+            for col, cats in cat_meta.items():
+                cat_type = CategoricalDtype(categories=cats, ordered=False)
+                ddf[col] = ddf[col].astype(cat_type)
+        
+        except:
+            pass
 
     return ddf
 
-def load_and_merge_from_manifest(manifest_path):
+def load_and_merge_from_manifest(manifest_path, sample=1.0):
     with open(manifest_path, "r") as f:
         manifest = json.load(f)
         
-    # Load main table
+    # Load main table (only sample if specified)
     main_parquet_path = manifest["main_data"]["parquet_path"]
     main_cat_meta_path = manifest["main_data"]["cat_meta_path"]
     main_ddf = load_from_parquet(main_parquet_path, main_cat_meta_path)
+    main_ddf = main_ddf.sample(frac=sample)
     
     # Iterate merging secondary data
     for meta in manifest["secondary_data"]:
