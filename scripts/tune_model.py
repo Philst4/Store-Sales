@@ -7,12 +7,10 @@ import argparse
 from src.io_utils import (
     load_config, 
     get_data_paths,
-    load_clean_data,
+    load_and_merge_from_manifest,
     load_experiment_config,
     get_studies_uri
 )
-
-from src.data_processing import merge_all
 
 from src.modeling import get_train
 
@@ -36,25 +34,18 @@ def main(args):
     _, CLEAN_DATA_PATH = get_data_paths(args.storage_mode, config)
     STUDIES_URI = get_studies_uri(args.storage_mode, config)
     
-    # Load in clean data (dictionary of dfs)
-    clean_dfs = load_clean_data(CLEAN_DATA_PATH)
+    
+    # Load in data, split off training data (as pandas)
+    print(f"Loading training data...")
+    ddf = load_and_merge_from_manifest("./data/clean/manifest.json", sample=args.sample)
+    
+    print(f"Splitting off train...")
+    train_df = get_train(ddf).compute()
     
     # Load in experiment configuration
     experiment_config = load_experiment_config(
         args.experiment_config
     )
-    
-    # So... eventually maybe want to do some merging on the fly for performance?
-    # For now, we just merge everything and go
-    merged_df = merge_all(
-        clean_dfs['main'].sample(frac=args.sample_frac, random_state=42),
-        clean_dfs['stores'],
-        clean_dfs['oil'],
-        clean_dfs['holidays_events']
-    )
-    
-    # Divvy up data
-    train_df = get_train(merged_df).sort_values(by=['date'])
     
     # Figure out n_jobs
     n_jobs = min(args.n_jobs, os.cpu_count())
@@ -100,12 +91,12 @@ if __name__ == "__main__":
         help="Where things are stored relative to script (local or cloud)"
     )
     
-    parser.add_argument("--sample_frac", type=float, default=0.25, help="Fraction of training samples to take from training data.")
+    parser.add_argument("--sample", type=float, default=1.0, help="Fraction of training samples to take from training data.")
     parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")
     parser.add_argument("--n_trials", type=int, default=5, help="Number of study trials to run (e.g. 5)")
     parser.add_argument("--n_jobs", type=int, default=1, help="Number of jobs to run in parallel (e.g. 2)")
     parser.add_argument("--n_backtests", type=int, default=8, help="Number of backtests to run for each trial")
-    parser.add_argument("--valset_size", type=int, default=15, help="Number of days included in each valset")
+    parser.add_argument("--valset_size", type=int, default=16, help="Number of days included in each valset")
     args = parser.parse_args()
     main(args)
     print(f"Script complete")

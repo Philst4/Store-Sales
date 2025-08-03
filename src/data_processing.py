@@ -25,12 +25,13 @@ def combine_train_test(train, test):
 #### CLEANING PROCESSES ####
 
 def _clean_main(main):
+    # Convert date, sort by
+    main['date'] = dd.to_datetime(main['date'], format="%Y-%m-%d")
+    #main = main.sort_values(by=['date'])
+    
     # Make store_nbr, family into categorical
     cat_features = ['store_nbr', 'family']
     main = main.categorize(columns=cat_features)
-
-    # Convert date
-    main['date'] = dd.to_datetime(main['date'], format="%Y-%m-%d")
     return main
 
 def _clean_stores(stores):
@@ -174,6 +175,7 @@ def _fe_oil(oil, windows_from_0, lag, windows_from_lag):
 
 def process_main(main):
     return _fe_main(_clean_main(main))
+    
 
 def process_stores(stores):
     return _fe_stores(_clean_stores(stores))
@@ -193,96 +195,6 @@ def process_oil(
 
 def process_holidays_events(holidays_events):
     return _fe_holidays_events(_clean_holidays_events(holidays_events))
-
-def _compute_rolling_stats(
-    main, 
-    group_cols, 
-    col, 
-    lag, 
-    window, 
-    quantiles=[], 
-    show_progress=False
-):
-    """
-    Compute lagged rolling stats on `col` in `main`, grouped by `group_cols`.
-    If group_cols is None or empty, computes globally.
-    """
-    # Basic statistics we always compute
-    stats = ['mean', 'std', 'min', 'max']
-    
-    # Add quantile calculations if specified
-    if quantiles:
-        # Convert quantiles to fractions (e.g., 90 -> 0.9)
-        quantile_stats = {f'q{q}': (q/100.0) for q in quantiles}
-    else:
-        quantile_stats = {}
-
-    # If no group, treat whole DataFrame
-    if not group_cols:
-        daily_sum = (
-            main
-            .groupby('date')[col]
-            .sum()
-            .reset_index()
-            .set_index('date')
-        )
-        
-        # Compute basic stats
-        rolled = daily_sum[[col]].rolling(f"{window}D", min_periods=1).agg(stats)
-        
-        # Compute quantiles if specified
-        if quantiles:
-            for q_name, q_value in quantile_stats.items():
-                rolled[q_name] = daily_sum[col].rolling(f"{window}D", min_periods=1).quantile(q_value)
-
-    # Grouped version
-    else:
-        daily_sum = (
-            main
-            .groupby(['date'] + group_cols, observed=False)[col]
-            .sum()
-            .reset_index()
-            .set_index('date')
-        )
-        
-        # Compute basic stats
-        rolled = (
-            daily_sum
-            .groupby(group_cols, observed=False)[col]
-            .rolling(f"{window}D", min_periods=1)
-            .agg(stats)
-        )
-        
-        # Compute quantiles if specified
-        if quantiles:
-            for q_name, q_value in quantile_stats.items():
-                rolled[q_name] = (
-                    daily_sum
-                    .groupby(group_cols, observed=False)[col]
-                    .rolling(f"{window}D", min_periods=1)
-                    .quantile(q_value)
-                )
-
-    # Rename columns
-    suffix = f"_wrt_{'_'.join(group_cols)}"
-    new_columns = []
-    for stat in stats:
-        new_columns.append(f"{col}_lag{lag}_window{window}_{stat}{suffix}")
-    
-    for q_name in quantile_stats.keys():
-        q_num = q_name[1:]  # Remove 'q' prefix
-        new_columns.append(f"{col}_lag{lag}_window{window}_q{q_num}{suffix}")
-    
-    rolled.columns = new_columns
-    
-    # Reset index
-    rolled = rolled.reset_index()
-    
-    # Shift dates back by 'lag'
-    rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)
-    return rolled
-
-
 
 def compute_rolling_stats(
     main, 
@@ -388,144 +300,6 @@ def compute_rolling_stats(
     rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)
     
     return dd.from_pandas(rolled, npartitions=1)
-
-def _get_lag_stats(
-    main, 
-    lag=16, 
-    windows=[1, 7, 14, 28, 91, 365], 
-    cols=['sales'], 
-    groups=[],
-    quantiles=[5, 25, 50, 75, 95]
-):
-    """
-    Efficiently computes lagged rolling statistics for `col` across different groupings.
-    Each stat for row at date D is computed over range (D - lag - window, D - lag].
-    """
-    assert 'date' in main.columns, "'date' not a column in the df"
-    main = main.sort_values('date')
-    
-    # Set 'date' as index
-    main.set_index('date', inplace=True)
-
-    # For keeping track of newly rolled dfs + how to merge them onto main    
-    rolls = [] # List of dataframes
-    merge_cols = [] # List of list of columns
-    
-    for col in cols:
-        for window in windows:
-            # 1. All Stores, All Families
-            rolls.append(
-                _compute_rolling_stats(
-                    main, 
-                    group_cols=[], 
-                    col=col, 
-                    lag=lag, 
-                    window=window, 
-                    suffix='',
-                    quantiles=quantiles
-                )
-            )
-            merge_cols.append(['date'])
-            
-            # 2. wrt cat_cols
-            for group in groups:
-                suffix = f"_wrt_{'_'.join(group)}"
-                rolled = _compute_rolling_stats(
-                    main, 
-                    group_cols=group, 
-                    col=col, 
-                    lag=lag, 
-                    window=window, 
-                    suffix=suffix,
-                    quantiles=quantiles
-                )
-                
-                rolls.append(rolled)
-                merge_cols.append(['date'] + group)
-    
-    return rolls, merge_cols # list of dataframes, list of columns to merge
-
-
-#### Main data-processing function
-def process_data(
-    main, 
-    stores, 
-    oil, 
-    holidays_events,
-    windows_from_0=[1, 2, 4, 7, 14],
-    lag=16,
-    windows_from_lag=[1, 7, 14, 28, 91, 365], # 13 weeks is 91 days
-    quantiles=[50]
-):
-    main = _fe_main(_clean_main(main))
-    stores = _fe_stores(_clean_stores(stores))
-    oil = _fe_oil(
-        _clean_oil(oil),
-        windows_from_0,
-        lag,
-        windows_from_lag
-    )
-    holidays_events = _fe_holidays_events(
-        _clean_holidays_events(
-            holidays_events
-            )
-    )
-    
-    # Merge main and stores on store_nbr, get groups    
-    main_stores = pd.merge(
-        main,
-        stores,
-        on='store_nbr',
-        how='left',
-    )
-    main_stores['store_nbr'] = main_stores['store_nbr'].astype('category')
-    
-    main_stores_groups = [
-        [cat_col] for cat_col in 
-        list(main_stores.select_dtypes(exclude='number').columns)
-        if cat_col != 'date'
-    ]
-    
-    # Get lag stats for 'main_stores'
-    main_stores_lag_stats, main_stores_merge_cols = _get_lag_stats(
-        main_stores, 
-        lag, 
-        windows_from_lag,
-        cols=['sales', 'log_sales'],
-        groups=main_stores_groups,
-        quantiles=quantiles
-    )
-    
-    # Merge 'main_stores_lag_stats' with with 'main_stores'
-    cols_to_fill = []
-    for i in range(len(main_stores_lag_stats)):
-        rolling_df = main_stores_lag_stats[i]
-        merge_cols = main_stores_merge_cols[i]
-        
-        main_stores = pd.merge(
-            main_stores,
-            rolling_df,
-            on=merge_cols,
-            how='left'
-        )
-        
-        # Explicitly convert merge cols back to categorical columns
-        cat_cols = [col for col in merge_cols if col != 'date']
-        main_stores[cat_cols] = main_stores[cat_cols].astype('category')
-        
-        # Keep track of 'fill' cols
-        cols_to_fill += list(main_stores_lag_stats[i].select_dtypes(include='number').columns)
-        
-    # Fill N/A's of new columns with 0
-    main_stores[cols_to_fill] = main_stores[cols_to_fill].fillna(0.)
-      
-    # Add feature to show how much run-way rolled stats get for each row
-    # Just how many days of previous data were available
-    min_date = main_stores['date'].min()
-    main_stores = main_stores.assign(
-        n_prev_days=(main_stores['date'] - min_date).dt.days.clip(upper=365)
-    )
-    return main_stores, stores, oil, holidays_events
 
 #### DATA-MERGING LOGIC ####
 def _fe_merge2(merge2, cols):

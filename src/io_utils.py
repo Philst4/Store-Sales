@@ -8,7 +8,9 @@ import json
 import yaml
 import pandas as pd
 import dask.dataframe as dd
+import pyarrow as pa
 from pandas.api.types import CategoricalDtype
+from tqdm import tqdm
 
 import warnings
 warnings.filterwarnings("ignore", message=".*Merging dataframes with merge column data type mismatches.*")
@@ -24,17 +26,34 @@ def get_data_paths(storage_mode, config):
     clean_path = config['storage_mode'][storage_mode]['data']['clean']
     return raw_path, clean_path
             
+def get_arrow_schema(ddf):
+    schema = []
+    for col, dtype in ddf.dtypes.items():
+        if dtype.name == 'category':
+            # Categorical → PyArrow dictionary type
+            arrow_type = pa.dictionary(pa.int32(), pa.string())
+        elif str(dtype) == 'bool':
+            arrow_type = pa.bool_()
+        elif str(dtype).startswith('datetime64'):
+            arrow_type = pa.timestamp('ns')
+        else:
+            arrow_type = pa.from_numpy_dtype(dtype)
+        schema.append((col, arrow_type))
+    return pa.schema(schema)
+
 def save_as_parquet(df, save_path):
     """
     Saves data as parquet
     """
-    # Save data
+    
     print(f"Saving '{save_path}'...")
+    
+    # Save data
     df = df.reset_index(drop=True)
     df.to_parquet(
         save_path,
         engine='pyarrow',
-        schema='infer',  # Let pyarrow infer schema
+        schema='infer', 
         write_index=False,
         overwrite=True
     )
@@ -75,13 +94,14 @@ def load_and_merge_from_manifest(manifest_path, sample=1.0):
         manifest = json.load(f)
         
     # Load main table (only sample if specified)
+    print("Loading 'main data'...")
     main_parquet_path = manifest["main_data"]["parquet_path"]
     main_cat_meta_path = manifest["main_data"]["cat_meta_path"]
     main_ddf = load_from_parquet(main_parquet_path, main_cat_meta_path)
     main_ddf = main_ddf.sample(frac=sample)
     
     # Iterate merging secondary data
-    for meta in manifest["secondary_data"]:
+    for meta in tqdm(manifest["secondary_data"], desc="Loading/merging 'secondary_data'..."):
         secondary_ddf = load_from_parquet(
             meta["parquet_path"], 
             meta["cat_meta_path"]
@@ -94,7 +114,7 @@ def load_and_merge_from_manifest(manifest_path, sample=1.0):
         )
 
     # Iterate merging rolling data
-    for meta in manifest["rolling_stats"]:
+    for meta in tqdm(manifest["rolling_stats"], desc="Loading/merging 'rolling_stats'..."):
         rolling_ddf = load_from_parquet(
             meta["parquet_path"], 
             meta["cat_meta_path"]
