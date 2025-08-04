@@ -57,5 +57,7 @@ def make_hyperparam_space(trial):
         'gamma' : trial.suggest_float('gamma', 0, 5),    
         'tree_method' : 'hist',
         'enable_categorical' : True,
-        'device' : DEVICE
+        'device' : DEVICE,
+        'max_bin' : 256,
+        'single_precision_histogram' : True,
     }
