@@ -69,10 +69,10 @@ def save_cat_meta(df, save_path):
     with open(save_path, "w") as f:
         json.dump(cat_meta, f)
 
-def load_from_parquet(parquet_path, cat_meta_path=None):
+def load_from_parquet(parquet_path, cat_meta_path=None, chunksize="256MB"):
     
     # Load in parquet file
-    ddf = dd.read_parquet(parquet_path, engine="pyarrow")
+    ddf = dd.read_parquet(parquet_path, engine="pyarrow", chunksize=chunksize)
 
     # Apply categorical metadata (try)
     if cat_meta_path:
@@ -89,7 +89,7 @@ def load_from_parquet(parquet_path, cat_meta_path=None):
 
     return ddf
 
-def load_and_merge_from_manifest(manifest_path, sample=1.0):
+def load_and_merge_from_manifest(manifest_path, chunksize="256MB", sample=1.0):
     with open(manifest_path, "r") as f:
         manifest = json.load(f)
         
@@ -97,14 +97,15 @@ def load_and_merge_from_manifest(manifest_path, sample=1.0):
     print("Loading 'main data'...")
     main_parquet_path = manifest["main_data"]["parquet_path"]
     main_cat_meta_path = manifest["main_data"]["cat_meta_path"]
-    main_ddf = load_from_parquet(main_parquet_path, main_cat_meta_path)
+    main_ddf = load_from_parquet(main_parquet_path, main_cat_meta_path, chunksize="256MB")
     main_ddf = main_ddf.sample(frac=sample)
     
     # Iterate merging secondary data
     for meta in tqdm(manifest["secondary_data"], desc="Loading/merging 'secondary_data'..."):
         secondary_ddf = load_from_parquet(
             meta["parquet_path"], 
-            meta["cat_meta_path"]
+            meta["cat_meta_path"],
+            chunksize="256MB"
         )
                 
         main_ddf = main_ddf.merge(
@@ -117,7 +118,8 @@ def load_and_merge_from_manifest(manifest_path, sample=1.0):
     for meta in tqdm(manifest["rolling_stats"], desc="Loading/merging 'rolling_stats'..."):
         rolling_ddf = load_from_parquet(
             meta["parquet_path"], 
-            meta["cat_meta_path"]
+            meta["cat_meta_path"],
+            chunksize="256MB"
         )
         main_ddf = main_ddf.merge(
             rolling_ddf,
@@ -125,7 +127,7 @@ def load_and_merge_from_manifest(manifest_path, sample=1.0):
             how="left"
         )
     
-    return main_ddf
+    return main_ddf.repartition(partition_size=chunksize)
 
 def load_experiment_config(experiment_config_path):
     print(f"Loading experiment config from '{experiment_config_path}'...")

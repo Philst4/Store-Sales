@@ -20,6 +20,9 @@ from src.modeling import (
     get_targets
 )
 
+def configure_client():
+    return Client()
+
 def main(args):
     # From args/config
     study_name = "xgb"
@@ -28,7 +31,7 @@ def main(args):
     model_weights_path = "./dask_xgboost_model.json"
     
     # Start dask client
-    client = Client()
+    client = configure_client()
     
     try: 
         # Load in data using dask
@@ -63,9 +66,13 @@ def main(args):
         y_tr = get_targets(training_ddf)
         
         # Persist only what's needed
+        print(f"We get here")
+        """
         with ProgressBar():
             X_tr, y_tr = client.persist([X_tr, y_tr])
-        
+            print(f"We don't get here")
+        """
+
         model = DaskXGBRegressor(**best_params)
         print("Fitting model...")
         model.fit(
@@ -79,7 +86,7 @@ def main(args):
     
     finally:
         # Ensure clean shutdown
-        client.close()
+        #client.close()
         print("Dask client closed")
     
 if __name__ == "__main__":
