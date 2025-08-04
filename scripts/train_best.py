@@ -67,11 +67,9 @@ def main(args):
         
         # Persist only what's needed
         print(f"We get here")
-        """
         with ProgressBar():
             X_tr, y_tr = client.persist([X_tr, y_tr])
             print(f"We don't get here")
-        """
 
         model = DaskXGBRegressor(**best_params)
         print("Fitting model...")
@@ -86,7 +84,7 @@ def main(args):
     
     finally:
         # Ensure clean shutdown
-        #client.close()
+        client.close()
         print("Dask client closed")
     
 if __name__ == "__main__":
