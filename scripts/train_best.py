@@ -7,9 +7,8 @@ import argparse
 # External imports
 import optuna
 import dask.dataframe as dd
-from dask.distributed import Client
+from dask.distributed import Client, LocalCluster
 from xgboost.dask import DaskXGBRegressor
-from dask.diagnostics import ProgressBar
 
 
 from src.io_utils import load_and_merge_from_manifest
@@ -21,7 +20,13 @@ from src.modeling import (
 )
 
 def configure_client():
-    return Client()
+    cluster = LocalCluster(
+        n_workers=6,
+        threads_per_worker=1,
+        memory_limit=40 / 6,
+        silence_logs=False
+    )
+    return Client(cluster)
 
 def main(args):
     # From args/config
@@ -67,9 +72,8 @@ def main(args):
         
         # Persist only what's needed
         print(f"We get here")
-        with ProgressBar():
-            X_tr, y_tr = client.persist([X_tr, y_tr])
-            print(f"We don't get here")
+        X_tr, y_tr = client.persist([X_tr, y_tr])
+        print(f"We don't get here")
 
         model = DaskXGBRegressor(**best_params)
         print("Fitting model...")
