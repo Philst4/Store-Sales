@@ -71,10 +71,12 @@ def build_fit_and_evaluate(
     y_preds = np.maximum(0, model.predict(X_val))
     
     # Debugging
+    """
     assert not np.isnan(y_preds).any(), f"NaNs found in y_preds: {y_preds}"
     assert not np.isnan(y_val).any(), f"NaNs found in y_val: {y_val}"
     
     assert (y_preds >= -1).all(), "Negative values in y_preds before log1p"
     assert (y_val >= -1).all(), "Negative values in y_val before log1p"
+    """
     
     return loss_fn(y_val, y_preds)

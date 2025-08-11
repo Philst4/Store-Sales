@@ -51,7 +51,7 @@ def add_constant_hyperparams(hyperparams):
         'enable_categorical' : True,
         'device' : DEVICE,
         'max_bin' : 256,
-        'single_precision_histogram' : True,
+        #'single_precision_histogram' : True,
     }
     return hyperparams | constant_hyperparams
 
