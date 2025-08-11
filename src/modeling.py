@@ -24,7 +24,7 @@ def get_features(df):
     return df.drop(columns=NON_FEATURES)
 
 def get_targets(df):
-    return df[TARGET_COL]
+    return df[[TARGET_COL]]
     
 def build_fit_and_evaluate(
     X_tr, 

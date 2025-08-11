@@ -42,12 +42,22 @@ def build_model(X_sample, hyperparams):
     ])
     return model
 
-def make_hyperparam_space(trial):
-    # Hyperparameter suggestions
-    return {
+def add_constant_hyperparams(hyperparams):
+    constant_hyperparams = {
         'seed' : 42,
         'objective' : 'reg:squarederror',
         'eval_metric' : 'rmse',
+        'tree_method' : 'hist',
+        'enable_categorical' : True,
+        'device' : DEVICE,
+        'max_bin' : 256,
+        'single_precision_histogram' : True,
+    }
+    return hyperparams | constant_hyperparams
+
+def make_hyperparam_space(trial):
+    # Hyperparameter suggestions
+    hyperparam_space =  {
         'n_estimators' : trial.suggest_int('n_estimators', 50, 500),
         'max_depth' : trial.suggest_int('max_depth', 2, 10),
         'learning_rate' : trial.suggest_float('learning_rate', 1e-3, 1e0, log=True),
@@ -55,9 +65,5 @@ def make_hyperparam_space(trial):
         'colsample_bytree' : trial.suggest_float('colsample_bytree', 0.5, 1.0),
         'reg_lambda' : trial.suggest_float('reg_lambda', 0, 10),
         'gamma' : trial.suggest_float('gamma', 0, 5),    
-        'tree_method' : 'hist',
-        'enable_categorical' : True,
-        'device' : DEVICE,
-        'max_bin' : 256,
-        'single_precision_histogram' : True,
     }
+    return add_constant_hyperparams(hyperparam_space)

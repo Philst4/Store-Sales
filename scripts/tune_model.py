@@ -37,15 +37,19 @@ def main(args):
     
     # Load in data, split off training data (as pandas)
     print(f"Loading training data...")
-    ddf = load_and_merge_from_manifest("./data/clean/manifest.json", sample=args.sample)
+    ddf = load_and_merge_from_manifest(
+        "./data/clean/manifest.json", 
+        sample=args.sample
+    )
     
-    print(f"Splitting off train...")
+    print(f"Loading training data into memory...")
     train_df = get_train(ddf).compute()
     
     # Load in experiment configuration
     experiment_config = load_experiment_config(
         args.experiment_config
     )
+    del experiment_config['add_constant_hyperparams']
     
     # Figure out n_jobs
     n_jobs = min(args.n_jobs, os.cpu_count())

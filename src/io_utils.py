@@ -69,65 +69,151 @@ def save_cat_meta(df, save_path):
     with open(save_path, "w") as f:
         json.dump(cat_meta, f)
 
-def load_from_parquet(parquet_path, cat_meta_path=None, chunksize="256MB"):
+def load_cat_meta(cat_meta_path):
+    with open(cat_meta_path, 'r') as f:
+        cat_meta = json.load(f)
+    return cat_meta
+
+def apply_cat_meta(ddf, cat_meta):
+    # Apply categorical metadata to df
+    for col, cats in cat_meta.items():
+        cat_type = CategoricalDtype(
+            categories=cats,
+            ordered=False
+        )
+        ddf[col] = ddf[col].astype(cat_type)
+        
+    return ddf
+
+def load_from_parquet(
+    parquet_path, 
+    cat_meta_path=None, 
+    start_date=None,
+    end_date=None,
+):
+    
+    # Apply date filter
+    filters = None
+    if start_date is not None and end_date is not None:
+        filters = [
+            ('date', '>=', start_date), 
+            ('date', '<=', end_date)
+        ]
     
     # Load in parquet file
-    ddf = dd.read_parquet(parquet_path, engine="pyarrow", chunksize=chunksize)
-
-    # Apply categorical metadata (try)
+    ddf = dd.read_parquet(
+        parquet_path, 
+        engine="pyarrow", 
+        filters=filters
+    )
+    
     if cat_meta_path:
-        try:
-            with open(cat_meta_path, "r") as f:
-                cat_meta = json.load(f)
-
-            for col, cats in cat_meta.items():
-                cat_type = CategoricalDtype(categories=cats, ordered=False)
-                ddf[col] = ddf[col].astype(cat_type)
-        
-        except:
-            pass
+        cat_meta = load_cat_meta(cat_meta_path)
+        apply_cat_meta(ddf, cat_meta)
 
     return ddf
 
-def load_and_merge_from_manifest(manifest_path, chunksize="256MB", sample=1.0):
+def load_all_cat_meta(
+    cat_meta_paths
+):
+    # Read in categorical metadata
+    all_cat_meta = {}
+    for cat_meta_path in cat_meta_paths:
+        cat_meta = load_cat_meta(cat_meta_path)
+        for key, new_val in cat_meta.items():
+
+            # Ensure categories are added properly
+            old_val = all_cat_meta.get(key, [])
+            all_cat_meta[key] = list(
+                set(old_val).union(set(new_val))
+            )
+            
+    return all_cat_meta
+
+def load_and_merge_from_manifest(
+    manifest_path, 
+    sample=1.0,
+    start_date=None,
+    end_date=None
+    ):
+    
+    # Keep track of cat_meta_paths (for post-merge application)
+    cat_meta_paths = []
+    
+    # Convert start date, end date to datetime
+    if start_date and end_date:
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+    
+    # Open manifest
     with open(manifest_path, "r") as f:
         manifest = json.load(f)
         
     # Load main table (only sample if specified)
-    print("Loading 'main data'...")
+    print("Locating 'main data' chunk...")
     main_parquet_path = manifest["main_data"]["parquet_path"]
     main_cat_meta_path = manifest["main_data"]["cat_meta_path"]
-    main_ddf = load_from_parquet(main_parquet_path, main_cat_meta_path, chunksize="256MB")
+    cat_meta_paths.append(main_cat_meta_path)
+    main_ddf = load_from_parquet(
+        main_parquet_path, 
+        main_cat_meta_path, 
+        start_date=start_date,
+        end_date=end_date
+    )
+    
     main_ddf = main_ddf.sample(frac=sample)
     
     # Iterate merging secondary data
-    for meta in tqdm(manifest["secondary_data"], desc="Loading/merging 'secondary_data'..."):
-        secondary_ddf = load_from_parquet(
-            meta["parquet_path"], 
-            meta["cat_meta_path"],
-            chunksize="256MB"
-        )
+    for meta in tqdm(manifest["secondary_data"], desc="Locating 'secondary_data' chunks..."):
+        
+        # Every file but 'stores' has 'date' column
+        if meta['name'] == 'stores':
+            secondary_ddf = load_from_parquet(
+                meta["parquet_path"], 
+                meta["cat_meta_path"],
+                start_date=None,
+                end_date=None
+            )
+            
+        else:
+            secondary_ddf = load_from_parquet(
+                meta["parquet_path"], 
+                meta["cat_meta_path"],
+                start_date=start_date,
+                end_date=end_date
+            )
                 
         main_ddf = main_ddf.merge(
             secondary_ddf,
             on=meta["merge_cols"],
             how="left"
         )
+        
+        # Save cat_meta_path
+        cat_meta_paths.append(meta["cat_meta_path"])
 
     # Iterate merging rolling data
-    for meta in tqdm(manifest["rolling_stats"], desc="Loading/merging 'rolling_stats'..."):
+    for meta in tqdm(manifest["rolling_stats"], desc="Locating 'rolling_stats' chunks..."):
         rolling_ddf = load_from_parquet(
             meta["parquet_path"], 
             meta["cat_meta_path"],
-            chunksize="256MB"
+            start_date=start_date,
+            end_date=end_date
         )
         main_ddf = main_ddf.merge(
             rolling_ddf,
             on=meta["merge_cols"],
             how="left"
         )
+        
+        # Save cat_meta_path
+        cat_meta_paths.append(meta["cat_meta_path"])
     
-    return main_ddf.repartition(partition_size=chunksize)
+    # Apply all cat_meta (post merge)
+    all_cat_meta = load_all_cat_meta(cat_meta_paths)
+    main_ddf = apply_cat_meta(main_ddf, all_cat_meta)
+    
+    return main_ddf #.repartition(partition_size=chunksize)
 
 def load_experiment_config(experiment_config_path):
     print(f"Loading experiment config from '{experiment_config_path}'...")

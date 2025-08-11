@@ -42,7 +42,6 @@ def _evaluate_split(df, build_model, hyperparams, loss_fn, period_size, i, last_
 
     return result
 
-
 def _backtest(
     df,
     build_model, 
@@ -132,7 +131,8 @@ def make_objective(
     
     # Define optuna objective function
     def objective(trial):
-        hyperparams = make_hyperparam_space(trial) # From config file
+        # From experiment config file
+        hyperparams = make_hyperparam_space(trial)
         with mlflow.start_run(run_name=f"{experiment_name} Trial {trial.number}", nested=True):
             mlflow.set_tag("model_type", experiment_name)
             mlflow.log_param("model", experiment_name)
