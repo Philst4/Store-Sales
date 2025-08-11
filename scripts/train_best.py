@@ -38,7 +38,7 @@ def configure_client():
 def main(args):
     # From args/config
     study_name = "xgb"
-    experiment_config = "experiment_configs.xgb"
+    experiment_config = args.experiment_config
     storage_uri = "sqlite:///./optuna_studies.db"
     manifest_path = "./data/clean/manifest.json"
     model_weights_path = "./dask_xgboost_model.json"
@@ -77,7 +77,7 @@ def main(args):
     # Initialize dates
     start_date = datetime(2013, 1, 1)
     end_date = datetime(2017, 8, 15)
-    chunk_size = timedelta(days=30) # Load in ~months
+    chunk_size = timedelta(days=args.chunksize)
     
     # Sequentially load in data
     while start_date < end_date:
@@ -106,11 +106,25 @@ def main(args):
             y_tr = get_targets(training_df)
         
             print("Training model on chunk...")
+            print("Training model on chunk...")
+
             if model is None:
-                model = xgb.XGBRegressor(**best_params)
+                # Create the pipeline model with the first chunk's schema
+                model = experiment_config['build_model'](
+                    X_tr, 
+                    best_params
+                )
                 model.fit(X_tr, y_tr)
             else:
-                model.fit(X_tr, y_tr, xgb_model=model)
+                # Access the XGBRegressor inside the pipeline
+                xgb_step = model.named_steps['model']
+                
+                # Fit again with xgb_model to continue training
+                xgb_step.fit(
+                    model.named_steps['preprocessor'].transform(X_tr),
+                    y_tr,
+                    xgb_model=xgb_step.get_booster()
+    )
             
         # Next chunk
         start_date += chunk_size
@@ -121,6 +135,34 @@ def main(args):
     client.close()
     
 if __name__ == "__main__":
-    args = None
+    parser = argparse.ArgumentParser(description="Training Script Using Best Hyperparameters")
+    
+    parser.add_argument(
+        "--run_type", 
+        type=str, 
+        default="test", 
+        help="Type of run (test or production)"
+    ) 
+    
+    parser.add_argument(
+        "--compute_mode",
+        type=str,
+        default="local",
+        help="Where/how script is running (local or cloud)"
+    )
+    
+    parser.add_argument(
+        "--storage_mode",
+        type=str,
+        default="local",
+        help="Where things are stored relative to script (local or cloud)"
+    )
+    
+    parser.add_argument("--chunk_size", type=int, default=90, help="Number of days to include in chunksize")
+    
+    parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")
+    
+    args = parser.parse_args()
+    
     main(args)
     
