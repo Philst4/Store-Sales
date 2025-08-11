@@ -26,6 +26,8 @@ from src.modeling import (
     get_targets
 )
 
+from sklearn.metrics import root_mean_squared_error
+
 def configure_client():
     cluster = LocalCluster(
         n_workers=6,
@@ -77,7 +79,7 @@ def main(args):
     # Initialize dates
     start_date = datetime(2013, 1, 1)
     end_date = datetime(2017, 8, 15)
-    chunk_size = timedelta(days=args.chunksize)
+    chunk_size = timedelta(days=args.chunk_size)
     
     # Sequentially load in data
     while start_date < end_date:
@@ -124,7 +126,9 @@ def main(args):
                     model.named_steps['preprocessor'].transform(X_tr),
                     y_tr,
                     xgb_model=xgb_step.get_booster()
-    )
+                )
+            
+            print(f"Loss on chunk: {root_mean_squared_error(model.predict(X_tr), y_tr)}")
             
         # Next chunk
         start_date += chunk_size
