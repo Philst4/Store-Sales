@@ -140,6 +140,8 @@ def main(args):
     else:
         # For random sampling
         ddf = load_and_merge_from_manifest(manifest_path)
+        ddf = ddf.reset_index(drop=True)
+        ddf = ddf.set_index(ddf.index)
         n_rows = ddf.shape[0].compute()
         all_indices = np.arange(n_rows)
         rng.shuffle(all_indices)
