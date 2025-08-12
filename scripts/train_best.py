@@ -80,113 +80,61 @@ def main(args):
     # Start dask client
     client = Client()
     
-    if not args.randomize_batches:
-        # Initialize dates
-        start_date = datetime(2013, 1, 1)
-        end_date = datetime(2017, 8, 15)
-        chunk_size = timedelta(days=args.chunk_size)
+    # Initialize dates
+    start_date = datetime(2013, 1, 1)
+    end_date = datetime(2017, 8, 15)
+    chunk_size = timedelta(days=args.chunk_size)
         
-        # Sequentially load in data
-        while start_date < end_date:
-            window_start = start_date.strftime("%Y-%m-%d")
-            window_end = (start_date + chunk_size).strftime("%Y-%m-%d")
-            print(f"\nChunk from: {window_start} to {window_end}")
+    # Sequentially load in data
+    while start_date < end_date:
+        window_start = start_date.strftime("%Y-%m-%d")
+        window_end = (start_date + chunk_size).strftime("%Y-%m-%d")
+        print(f"\nChunk from: {window_start} to {window_end}")
         
-            # Load in data using dask
-            ddf = load_and_merge_from_manifest(
-                manifest_path,
-                start_date=window_start,
-                end_date=window_end
-            )
-            print(f"Loading chunk into memory...")
-            df = ddf.compute()
-            for col in df.select_dtypes(include='object').columns:
-                df[col] = df[col].astype('category')
+        # Load in data using dask
+        ddf = load_and_merge_from_manifest(
+            manifest_path,
+            start_date=window_start,
+            end_date=window_end
+        )
+        print(f"Loading chunk into memory...")
+        df = ddf.compute()
+        for col in df.select_dtypes(include='object').columns:
+            df[col] = df[col].astype('category')
             
-            if len(df) == 0:
-                print("Empty chunk")
-            else:
-                # Prepare data
-                print(f"Splitting train/test...")
-                training_df = get_train(df)
-                X_tr = get_features(training_df)
-                y_tr = get_targets(training_df)
+        if len(df) == 0:
+            print("Empty chunk")
+        else:
+            # Prepare data
+            print(f"Splitting train/test...")
+            training_df = get_train(df)
+            X_tr = get_features(training_df)
+            y_tr = get_targets(training_df)
             
-                print("Training model on chunk...")
+            print("Training model on chunk...")
 
-                if model is None:
-                    # Create the pipeline model with the first chunk's schema
-                    model = experiment_config['build_model'](
-                        X_tr, 
-                        best_params
-                    )
-                    model.fit(X_tr, y_tr)
-                else:
-                    # Access the XGBRegressor inside the pipeline
-                    xgb_step = model.named_steps['model']
+            if model is None:
+                # Create the pipeline model with the first chunk's schema
+                model = experiment_config['build_model'](
+                    X_tr, 
+                    best_params
+                )
+                model.fit(X_tr, y_tr)
+            else:
+                # Access the XGBRegressor inside the pipeline
+                xgb_step = model.named_steps['model']
                     
-                    # Fit again with xgb_model to continue training
-                    xgb_step.fit(
-                        model.named_steps['preprocessor'].transform(X_tr),
-                        y_tr,
-                        xgb_model=xgb_step.get_booster()
-                    )
+                # Fit again with xgb_model to continue training
+                xgb_step.fit(
+                    model.named_steps['preprocessor'].transform(X_tr),
+                    y_tr,
+                    xgb_model=xgb_step.get_booster()
+                )
                 
-                print(f"Loss on chunk: {root_mean_squared_error(model.predict(X_tr), y_tr)}")
+            print(f"Loss on chunk: {root_mean_squared_error(model.predict(X_tr), y_tr)}")
                 
             # Next chunk
             start_date += chunk_size
-            
-    else:
-        # For random sampling
-        ddf = load_and_merge_from_manifest(manifest_path)
-        ddf = ddf.reset_index(drop=True)
-        ddf = ddf.set_index(ddf.index)
-        n_rows = ddf.shape[0].compute()
-        all_indices = np.arange(n_rows)
-        rng.shuffle(all_indices)
-        
-        # Partition indices into batches
-        batch_size = args.batch_size
-        batches = [all_indices[i:i+batch_size] for i in range(0, n_rows, batch_size)]
-        
-        for i, idx in enumerate(batches):
-            print(f"Loading batch {i+1}/{len(batches)} with {len(idx)} rows...")
-            df = ddf.loc[idx].compute()
-            
-            for col in df.select_dtypes(include='object').columns:
-                df[col] = df[col].astype('category')
-            
-            if len(df) == 0:
-                print("Empty chunk")
-            else:
-                # Prepare data
-                print(f"Splitting train/test...")
-                training_df = get_train(df)
-                X_tr = get_features(training_df)
-                y_tr = get_targets(training_df)
-            
-                print("Training model on chunk...")
-
-                if model is None:
-                    # Create the pipeline model with the first chunk's schema
-                    model = experiment_config['build_model'](
-                        X_tr, 
-                        best_params
-                    )
-                    model.fit(X_tr, y_tr)
-                else:
-                    # Access the XGBRegressor inside the pipeline
-                    xgb_step = model.named_steps['model']
-                    
-                    # Fit again with xgb_model to continue training
-                    xgb_step.fit(
-                        model.named_steps['preprocessor'].transform(X_tr),
-                        y_tr,
-                        xgb_model=xgb_step.get_booster()
-                    )
-                
-                print(f"Loss on chunk: {root_mean_squared_error(model.predict(X_tr), y_tr)}")
             
     print("Done training!")
     model.save_model(model_weights_path)
@@ -219,9 +167,7 @@ if __name__ == "__main__":
     
     parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")
     
-    parser.add_argument("--randomize_batches", type=bool, default=False, help="Whether batches are randomized or sequential.")
     parser.add_argument("--chunk_size", type=int, default=365, help="Number of days to include in chunksize (for sequential batches)")
-    parser.add_argument("--batch_size", type=int, default=500_000, help="Number of rows per batch (for randomized batches)")
     args = parser.parse_args()
     
     main(args)
