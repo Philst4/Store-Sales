@@ -11,3 +11,4 @@ read_me.txt
 *.json
 submission.csv
 scripts/load_from_manifest.py
+*.joblib

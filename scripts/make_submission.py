@@ -3,16 +3,19 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import argparse
+import joblib
 
 # External imports
 import pandas as pd
 import numpy as np
 import dask.dataframe as dd
 from dask.distributed import Client
-from xgboost.dask import DaskXGBRegressor
 import optuna
 
-from src.io_utils import load_clean_data
+from src.io_utils import (
+    load_experiment_config,
+    load_and_merge_from_manifest
+)
 from src.data_processing import merge_all
 from src.modeling import (
     get_train,
@@ -21,51 +24,51 @@ from src.modeling import (
 )
 
 def main(args):
+    
     # From args/config
     study_name = "xgb"
-    storage_uri = "sqlite:///./optuna_studies.db"
-    clean_data_path = "./data/clean/"
-    model_weights_path = "./dask_xgboost_model.json"
+    experiment_config = args.experiment_config
+    studies_uri = "sqlite:///./optuna_studies.db"
+    manifest_path = "./data/clean/manifest.json"
+    model_path = "./model.joblib"
     submission_path = "./submission.csv"
     
-    # Start dask client
-    client = Client()
-    
-    # Load in data using dask
-    dfs = load_clean_data(clean_data_path, as_dask=True)
-    
-    # Merge data
-    test_data = merge_all(
-        get_test(dfs['main']), # Extract test data
-        dfs['stores'], 
-        dfs['oil'], 
-        dfs['holidays_events']
-    )
-    del dfs
-    test_features = get_features(test_data)
-    ids = test_data['id']
-    del test_data
-    
-    
-    print(f"Loading in model...")
     # Load in study
     study = optuna.load_study(
         study_name=study_name,
-        storage=storage_uri
+        storage=studies_uri
     )
 
     # Extract best trial and corresponding params
+    experiment_config = load_experiment_config(
+        experiment_config
+    )
     best_trial = study.best_trial
     best_params = best_trial.params
+    best_params = experiment_config['add_constant_hyperparams'](
+        best_params
+    )
     
-    # Make model
-    model = DaskXGBRegressor(**best_params) # Needed to ensure model is set up the same.
-    model.load_model(model_weights_path)
+    # Load in data using dask
+    test_ddf = load_and_merge_from_manifest(
+        manifest_path,
+        start_date="08-01-2017",
+        end_date="08-17-2017"
+    )
+    test_df = test_ddf.compute()
+    test_df = get_test(test_df)
+    
+    X_te = get_features(test_df)
+    ids = test_df['id']
+    
+    
+    print(f"Loading in model...")
+    model = joblib.load(model_path)
     
     # Make predictions
     print("Making predictions...")
-    log_predictions = model.predict(test_features) # dask array
-    log_predictions = log_predictions.compute() # pd.dataframe
+    log_predictions = model.predict(X_te) 
+    log_predictions = log_predictions 
     predictions = np.expm1(log_predictions) # Un-log
     
     # Combine with id's, convert to pandas
@@ -81,5 +84,10 @@ def main(args):
     
 
 if __name__ == "__main__":
-    args = None
+    parser = argparse.ArgumentParser(description="Script to make submission")
+    
+    parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")    
+    
+    
+    args = parser.parse_args()
     main(args)

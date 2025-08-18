@@ -3,7 +3,7 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import argparse
-from datetime import datetime, timedelta
+import joblib
 
 # External imports
 import optuna
@@ -45,14 +45,14 @@ def main(args):
     # From args/config
     study_name = "xgb"
     experiment_config = args.experiment_config
-    storage_uri = "sqlite:///./optuna_studies.db"
+    studies_uri = "sqlite:///./optuna_studies.db"
     manifest_path = "./data/clean/manifest.json"
-    model_weights_path = "./dask_xgboost_model.json"
+    model_path = "./model.joblib"
     
     # Load in study
     study = optuna.load_study(
         study_name=study_name,
-        storage=storage_uri
+        storage=studies_uri
     )
 
     # Extract best trial and corresponding params
@@ -80,25 +80,12 @@ def main(args):
     # Start dask client
     client = Client()
     
-    #### FOR DATES ####
-    """
-    # Initialize dates
-    start_date = datetime(2013, 1, 1)
-    end_date = datetime(2017, 8, 15)
-    chunk_size = timedelta(days=args.chunk_size)
-        
-    # Sequentially load in data
-    while start_date < end_date:
-        window_start = start_date.strftime("%Y-%m-%d")
-        window_end = (start_date + chunk_size).strftime("%Y-%m-%d")
-        print(f"\nChunk from: {window_start} to {window_end}")
-    """   
-    
     #### FOR SAMPLING WITH REPLACEMENT ####
     n_iter = args.n_iter
     sample_frac = args.sample_frac
     for i in range(n_iter):
         print(f"\n -- Training Iteration {i+1}/{n_iter} (sampling {sample_frac * 100:.2f}% of data) --")
+        
         # Load in data using dask
         ddf = load_and_merge_from_manifest(
             manifest_path,
@@ -139,13 +126,10 @@ def main(args):
                 )
                 
             print(f"Loss on chunk: {root_mean_squared_error(model.predict(X_tr), y_tr)}")
-                
-            # Next chunk
-            #start_date += chunk_size
             
     print("Done training!")
-    model['model'].save_model(model_weights_path)
-    print(f"Model saved to '{model_weights_path}'")
+    joblib.dump(model, model_path)
+    print(f"Model saved to '{model_path}'")
     client.close()
     
 if __name__ == "__main__":
@@ -172,10 +156,7 @@ if __name__ == "__main__":
         help="Where things are stored relative to script (local or cloud)"
     )
     
-    parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")
-    
-    parser.add_argument("--chunk_size", type=int, default=365, help="Number of days to include in chunksize (for sequential batches)")
-    
+    parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")    
     parser.add_argument("--sample_frac", type=float, default=0.1, help="The fraction of samples to include in a batch.")
     parser.add_argument("--n_iter", type=int, default=10, help="The number of batches to load/train on.")
     
