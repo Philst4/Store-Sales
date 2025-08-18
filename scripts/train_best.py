@@ -80,6 +80,8 @@ def main(args):
     # Start dask client
     client = Client()
     
+    #### FOR DATES ####
+    """
     # Initialize dates
     start_date = datetime(2013, 1, 1)
     end_date = datetime(2017, 8, 15)
@@ -90,12 +92,17 @@ def main(args):
         window_start = start_date.strftime("%Y-%m-%d")
         window_end = (start_date + chunk_size).strftime("%Y-%m-%d")
         print(f"\nChunk from: {window_start} to {window_end}")
-        
+    """   
+    
+    #### FOR SAMPLING WITH REPLACEMENT ####
+    n_iter = args.n_iter
+    sample_frac = args.sample_frac
+    for i in range(n_iter):
+        print(f"\n -- Training Iteration {i+1}/{n_iter} (sampling {sample_frac * 100:.2f}% of data) --")
         # Load in data using dask
         ddf = load_and_merge_from_manifest(
             manifest_path,
-            start_date=window_start,
-            end_date=window_end
+            sample=sample_frac
         )
         print(f"Loading chunk into memory...")
         df = ddf.compute()
@@ -134,10 +141,10 @@ def main(args):
             print(f"Loss on chunk: {root_mean_squared_error(model.predict(X_tr), y_tr)}")
                 
             # Next chunk
-            start_date += chunk_size
+            #start_date += chunk_size
             
     print("Done training!")
-    model.save_model(model_weights_path)
+    model['model'].save_model(model_weights_path)
     print(f"Model saved to '{model_weights_path}'")
     client.close()
     
@@ -168,6 +175,10 @@ if __name__ == "__main__":
     parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")
     
     parser.add_argument("--chunk_size", type=int, default=365, help="Number of days to include in chunksize (for sequential batches)")
+    
+    parser.add_argument("--sample_frac", type=float, default=0.1, help="The fraction of samples to include in a batch.")
+    parser.add_argument("--n_iter", type=int, default=10, help="The number of batches to load/train on.")
+    
     args = parser.parse_args()
     
     main(args)
