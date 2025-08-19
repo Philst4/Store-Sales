@@ -52,8 +52,8 @@ def main(args):
     # Load in data using dask
     test_ddf = load_and_merge_from_manifest(
         manifest_path,
-        start_date="08-01-2017",
-        end_date="08-17-2017"
+        start_date="08-16-2017",
+        end_date="08-31-2017"
     )
     test_df = test_ddf.compute()
     test_df = get_test(test_df)
@@ -68,7 +68,6 @@ def main(args):
     # Make predictions
     print("Making predictions...")
     log_predictions = model.predict(X_te) 
-    log_predictions = log_predictions 
     predictions = np.expm1(log_predictions) # Un-log
     
     # Combine with id's, convert to pandas
