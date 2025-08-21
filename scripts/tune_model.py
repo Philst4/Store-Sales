@@ -60,6 +60,7 @@ def main(args):
         n_backtests=args.n_backtests,
         valset_size=args.valset_size,
         n_jobs=n_jobs,
+        max_time_per_trial=args.max_time_per_trial,
         **experiment_config
     )
     
@@ -101,6 +102,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_jobs", type=int, default=1, help="Number of jobs to run in parallel (e.g. 2)")
     parser.add_argument("--n_backtests", type=int, default=8, help="Number of backtests to run for each trial")
     parser.add_argument("--valset_size", type=int, default=16, help="Number of days included in each valset")
+    parser.add_argument("--max_time_per_trial", type=int, default=300, help="Max number of seconds to run a trial for.")
     args = parser.parse_args()
     main(args)
     print(f"Script complete")

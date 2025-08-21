@@ -4,7 +4,8 @@ from sklearn.metrics import root_mean_squared_error
 import optuna
 import mlflow
 from joblib import Parallel, delayed
-import multiprocessing
+import multiprocessing as mp
+from time import time
 import sys
 
 from src.modeling import (
@@ -76,7 +77,7 @@ def _backtest(
         # Parallel execution
         print(f" * Running folds in parallel with n_jobs={n_jobs}...")
 
-        manager = multiprocessing.Manager()
+        manager = mp.Manager()
         counter = manager.Value('i', 0)
         lock = manager.Lock()
 
@@ -131,6 +132,7 @@ def make_objective(
     
     # Define optuna objective function
     def objective(trial):
+        
         # From experiment config file
         hyperparams = make_hyperparam_space(trial)
         with mlflow.start_run(run_name=f"{experiment_name} Trial {trial.number}", nested=True):
@@ -143,6 +145,79 @@ def make_objective(
         return loss
     
     return objective
+
+
+def make_objective(
+    df,
+    build_model,
+    make_hyperparam_space,
+    loss_fn=root_mean_squared_error, 
+    experiment_name="N/A",
+    loss_fn_name="RMSE",
+    target_name="log_sales",
+    n_backtests=4,
+    valset_size=92,
+    n_jobs=1,
+    max_time_per_trial=300
+):
+    """
+    Creates an optuna objective function to use for tuning.
+    
+    Args:
+        experiment_name : The name of the experiment
+        df : The data to use to train/evaluate
+        build_model : function for initializing model with hyperparams
+        make_hyperparam_space : function for initializing hyperparam space
+        loss_fn : evaluation function
+        period_size : The backtest interval size (in days)
+        n_tests : The number of backtest evaluations
+        n_jobs : The number of train/evaluations to run in parallel
+    """
+    
+    # Define function to evaluate single set of hyperparameters
+    backtest_hyperparams = lambda hyperparams : _backtest(
+        df,
+        build_model,
+        hyperparams, 
+        loss_fn,
+        n_backtests,
+        valset_size,
+        n_jobs
+    )
+    def run_backtest(hyperparams, return_dict):
+        try:
+            losses = backtest_hyperparams(hyperparams)
+            return_dict["loss"] = float(np.mean(losses))
+        except Exception as e:
+            return_dict["error"] = str(e)
+
+    def objective(trial):
+        start_time = time()
+        hyperparams = make_hyperparam_space(trial)
+
+        with mlflow.start_run(run_name=f"{experiment_name} Trial {trial.number}", nested=True):
+            mlflow.set_tag("model_type", experiment_name)
+            mlflow.log_param("model", experiment_name)
+            mlflow.log_params(hyperparams)
+
+            manager = mp.Manager()
+            return_dict = manager.dict()
+            p = mp.Process(target=run_backtest, args=(hyperparams, return_dict))
+            p.start()
+            p.join(max_time_per_trial)
+
+            if p.is_alive():
+                p.terminate()
+                p.join()
+                raise optuna.TrialPruned()  # cut trial off
+
+            if "error" in return_dict:
+                raise optuna.TrialPruned()  # optional: treat errors as pruned
+
+            loss = return_dict["loss"]
+            mlflow.log_metric(f"{loss_fn_name} of {target_name}", loss)
+
+        return loss
 
 def run_experiment(
     objective,
