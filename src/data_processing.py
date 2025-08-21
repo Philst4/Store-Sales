@@ -142,7 +142,7 @@ def _fe_oil(oil, windows_from_0, lag, windows_from_lag):
     oil['dayOfWeek'] = oil['date'].dt.day_name().astype('category')
     oil['isWeekend'] = oil['dayOfWeek'].isin(['Saturday', 'Sunday']).astype('category')
 
-    # Add month
+    # Add month (for seasonality)
     oil['Month'] = oil['date'].dt.month.astype('category')
 
     # Add how many days since last paycheck (from 15th/end of month)
@@ -300,6 +300,96 @@ def compute_rolling_stats(
     rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)
     
     return dd.from_pandas(rolled, npartitions=1)
+
+#### NEW COMPUTE ROLLING STATS ####
+
+def calc_daily_stats(
+    df, 
+    cols_to_roll, 
+    group_cols, 
+    supported_stats, 
+    quantiles
+):
+    df = df.sort_values(by=group_cols + ['date'])
+    
+    quantile_fns = {}
+    for quantile in quantiles:
+        quantile_fns[quantile] = lambda x, q=quantile: np.quantile(x, float(q[1:]) / 100)
+
+    daily_stats = (
+        df
+        .groupby(['date'] + group_cols, observed=True)[cols_to_roll]
+        .agg(supported_stats + list(quantile_fns.values()))
+        .reset_index()
+        .set_index('date')
+    )
+
+    # Flatten the multi-index
+    suffix = f"_wrt_{'_'.join(group_cols)}" if group_cols else ""
+    new_cols = group_cols.copy()
+    for col in cols_to_roll:
+        for stat in supported_stats + quantiles:
+            new_cols.append(f"{col}_{stat}{suffix}")
+    daily_stats.columns = new_cols
+
+    return daily_stats
+
+def roll_daily_stats(daily_stats, group_cols, lag=16, window=1):
+    daily_stats = daily_stats.sort_values(by=group_cols).sort_index()
+    
+    # These are the average aggregation stats
+    value_cols = [c for c in daily_stats.columns if c not in group_cols]
+
+    if group_cols:
+        rolling_stats = (
+            daily_stats.groupby(group_cols, group_keys=False)[value_cols]
+            .rolling(window=window, min_periods=1)
+            .mean()
+            .groupby(level=group_cols).shift(lag)
+            .dropna(how="all")   # drop fully empty rows
+            .reset_index()
+        )
+    else:
+        rolling_stats = (
+            daily_stats[value_cols]
+            .rolling(window=window, min_periods=1)
+            .mean()
+            .shift(lag)
+            .dropna(how="all")
+            .reset_index()
+        )
+    
+    # Rename rolling cols to have lag and window info
+    new_cols = [col + f"_lag{lag}_window{window}" if col not in ['date'] + group_cols else col for col in list(rolling_stats.columns)]
+    rolling_stats.columns = new_cols
+    return rolling_stats
+
+def compute_rolling_stats(
+        df,
+        cols_to_roll, 
+        group_cols, 
+        supported_stats, 
+        quantiles,
+        lag=16, 
+        window=1
+    ):
+
+    daily_stats = calc_daily_stats(
+        df, 
+        cols_to_roll, 
+        group_cols, 
+        supported_stats, 
+        quantiles
+    )
+
+    rolled_stats = roll_daily_stats(
+        daily_stats,
+        group_cols, 
+        lag, 
+        window,
+    )
+    
+    return rolled_stats
 
 #### DATA-MERGING LOGIC ####
 def _fe_merge2(merge2, cols):

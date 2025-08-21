@@ -51,7 +51,9 @@ def main(args):
     windows_from_0 = [1, 2, 4, 7, 14]
     lag = 16
     windows_from_lag = [1, 7, 28, 91, 365]
+    supported_stats = ['mean', 'std', 'min', 'max']
     quantiles = [0.1, 1, 5, 25, 50, 75, 95, 99, 99.9]
+    quantiles = ['q' + str(quantile) for quantile in quantiles]
     
     # Check args
     check_args(args)
@@ -171,24 +173,28 @@ def main(args):
     ]
     main_stores_groups.append([])
     
+    # Load main_stores into memory
+    main_stores = main_stores.compute()
+    
     # Calculate rolling stats wrt each group, window
     for group_cols in main_stores_groups:
-        suffix = f"_wrt_{'_'.join(group_cols)}" if group_cols else ""
         for window in windows_from_lag:
             
             # Calculate rolling stats
             rolling_stats = compute_rolling_stats(
                 main_stores, 
+                cols_to_roll=['sales', 'log_sales'],
                 group_cols=group_cols,
-                rolling_cols=['sales', 'log_sales'],
-                lag=lag,
-                window=window,
+                supported_stats=supported_stats,
                 quantiles=quantiles,
-                suffix=suffix
+                lag=lag,
+                window=window
             )
             
             # Save rolling stats
-            file_name = f"rolling_lag{lag}_window{window}{suffix}"
+            suffix1 = f"_wrt_{'_'.join(group_cols)}" if group_cols else ""
+            suffix2 = f"_lag{lag}_window{window}"
+            file_name = f"rolling{suffix1}{suffix2}"
             parquet_path = os.path.join(CLEAN_DATA_PATH, f"{file_name}.parquet")
             save_as_parquet(rolling_stats, parquet_path)
             cat_meta_path = os.path.join(CLEAN_DATA_PATH, f"{file_name}_cat_meta.json")
