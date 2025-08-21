@@ -218,6 +218,8 @@ def make_objective(
             mlflow.log_metric(f"{loss_fn_name} of {target_name}", loss)
 
         return loss
+    
+    return objective
 
 def run_experiment(
     objective,
