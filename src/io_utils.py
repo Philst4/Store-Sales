@@ -59,7 +59,7 @@ def save_as_parquet(df, save_path):
             write_index=False,
             overwrite=True
         )
-    elif isinstance(df, pd.Dataframe):
+    elif isinstance(df, pd.DataFrame):
         df.to_parquet(
             save_path,
             engine="pyarrow",

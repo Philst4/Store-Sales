@@ -4,6 +4,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import argparse
 import json
+from time import time
 
 # External imports
 import pandas as pd
@@ -181,6 +182,8 @@ def main(args):
         for window in windows_from_lag:
             
             # Calculate rolling stats
+            start_time = time()
+            print(f"Rolling stats for group '{group_cols}', window '{window}'")
             rolling_stats = compute_rolling_stats(
                 main_stores, 
                 cols_to_roll=['sales', 'log_sales'],
@@ -209,6 +212,8 @@ def main(args):
                     "merge_cols" : ["date"] + group_cols,
                 }
             )
+            
+            print(f" * {time() - start_time}")
     
     # (6) Save manifest file
     manifest_path = os.path.join(CLEAN_DATA_PATH, "manifest.json")
