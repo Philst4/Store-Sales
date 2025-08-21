@@ -192,7 +192,6 @@ def make_objective(
             return_dict["error"] = str(e)
 
     def objective(trial):
-        start_time = time()
         hyperparams = make_hyperparam_space(trial)
 
         with mlflow.start_run(run_name=f"{experiment_name} Trial {trial.number}", nested=True):
@@ -209,15 +208,17 @@ def make_objective(
             if p.is_alive():
                 p.terminate()
                 p.join()
-                raise optuna.TrialPruned()  # cut trial off
+                raise optuna.TrialPruned()  # cut trial off due to timeout
 
-            if "error" in return_dict:
-                raise optuna.TrialPruned()  # optional: treat errors as pruned
-
-            loss = return_dict["loss"]
-            mlflow.log_metric(f"{loss_fn_name} of {target_name}", loss)
-
-        return loss
+            if "loss" in return_dict:
+                loss = return_dict["loss"]
+                mlflow.log_metric(f"{loss_fn_name} of {target_name}", loss)
+                return loss
+            else:
+                # Something went wrong inside run_backtest
+                err = return_dict.get("error", "Unknown error")
+                mlflow.log_param("pruned_reason", f"backtest_failed: {err}")
+                raise optuna.TrialPruned()
     
     return objective
 
