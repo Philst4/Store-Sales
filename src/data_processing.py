@@ -318,7 +318,7 @@ def calc_daily_stats(
 
     daily_stats = (
         df
-        .groupby(['date'] + group_cols, observed=True)[cols_to_roll]
+        .groupby(['date'] + group_cols, observed=False)[cols_to_roll]
         .agg(supported_stats + list(quantile_fns.values()))
         .reset_index()
         .set_index('date')
@@ -342,7 +342,7 @@ def roll_daily_stats(daily_stats, group_cols, lag=16, window=1):
 
     if group_cols:
         rolling_stats = (
-            daily_stats.groupby(group_cols, group_keys=False)[value_cols]
+            daily_stats.groupby(group_cols, group_keys=False, observed=False)[value_cols]
             .rolling(window=window, min_periods=1)
             .mean()
             .groupby(level=group_cols).shift(lag)

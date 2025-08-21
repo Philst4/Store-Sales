@@ -50,13 +50,23 @@ def save_as_parquet(df, save_path):
     
     # Save data
     df = df.reset_index(drop=True)
-    df.to_parquet(
-        save_path,
-        engine='pyarrow',
-        schema='infer', 
-        write_index=False,
-        overwrite=True
-    )
+    
+    if isinstance(df, dd.DataFrame):
+        df.to_parquet(
+            save_path,
+            engine='pyarrow',
+            schema='infer', 
+            write_index=False,
+            overwrite=True
+        )
+    elif isinstance(df, pd.Dataframe):
+        df.to_parquet(
+            save_path,
+            engine="pyarrow",
+            index=False
+        )
+    else:
+        raise TypeError(f"Unsupported dataframe type: {type(df)}")
         
 def save_cat_meta(df, save_path):
     # Save categorical metadata
