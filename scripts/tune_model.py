@@ -60,7 +60,6 @@ def main(args):
         n_backtests=args.n_backtests,
         valset_size=args.valset_size,
         n_jobs=n_jobs,
-        max_time_per_trial=args.max_time_per_trial,
         **experiment_config
     )
     
