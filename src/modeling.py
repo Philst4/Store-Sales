@@ -5,6 +5,7 @@ import inspect
 import pandas as pd
 import numpy as np
 from sklearn.metrics import root_mean_squared_error
+from sklearn.pipeline import Pipeline
 
 # THIS FILE CONTAINS EVERYTHING PERTAINING TO FITTING A MODEL
 # Model configured to make log-predictions (predict log_sales)
