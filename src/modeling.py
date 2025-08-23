@@ -80,3 +80,50 @@ def build_fit_and_evaluate(
     """
     
     return loss_fn(y_val, y_preds)
+
+
+def build_fit_and_evaluate(
+    X_tr, 
+    y_tr,
+    X_val,
+    y_val, 
+    build_model,
+    hyperparams,
+    loss_fn=root_mean_squared_error
+):
+    """
+    Fits + evaluates model on data using hyperparams.
+    """
+
+    # Build pipeline
+    model = build_model(
+        X_tr.iloc[[0]],  # sample to detect col types
+        hyperparams
+    )
+
+    # Split pipeline into steps
+    preprocessor = model.named_steps['preprocessor']
+    regressor = model.named_steps['model']
+
+    # Fit preprocessor
+    X_tr_transformed = preprocessor.fit_transform(X_tr)
+    X_val_transformed = preprocessor.transform(X_val)
+
+    # Fit regressor w/ early stopping
+    regressor.fit(
+        X_tr_transformed, 
+        y_tr,
+        eval_set=[(X_val_transformed, y_val)],  # ✅ transformed val set
+        verbose=False
+    )
+
+    # Wrap back into pipeline for predictions later
+    model = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('model', regressor)
+    ])
+
+    # Predict on validation set (using full pipeline)
+    y_preds = np.maximum(0, model.predict(X_val))
+
+    return loss_fn(y_val, y_preds)
