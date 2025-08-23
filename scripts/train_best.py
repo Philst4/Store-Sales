@@ -108,6 +108,9 @@ def main(args):
             print("Training model on chunk...")
 
             if model is None:
+                # Set early stopping rounds to False
+                best_params['early_stopping_rounds'] = False
+                
                 # Create the pipeline model with the first chunk's schema
                 model = experiment_config['build_model'](
                     X_tr, 
