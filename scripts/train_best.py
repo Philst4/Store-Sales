@@ -109,7 +109,7 @@ def main(args):
 
             if model is None:
                 # Set early stopping rounds to False
-                best_params['early_stopping_rounds'] = False
+                best_params['early_stopping_rounds'] = None
                 
                 # Create the pipeline model with the first chunk's schema
                 model = experiment_config['build_model'](

@@ -54,7 +54,8 @@ def add_constant_hyperparams(hyperparams):
         'early_stopping_rounds' : 100
         #'single_precision_histogram' : True,
     }
-    return hyperparams | constant_hyperparams
+    
+    return constant_hyperparams | hyperparams
 
 def make_hyperparam_space(trial):
     # Hyperparameter suggestions
