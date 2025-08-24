@@ -73,9 +73,6 @@ def main(args):
         print(f" * {key}: {value}")
     print()
     
-    # Initialize model
-    model = None
-    
     # Start dask client
     client = Client()
     
@@ -88,6 +85,8 @@ def main(args):
     for seed in range(args.n_seeds):
         print(f"\n -- SEED {seed} MODEL --")
         model_path = f"./model_{seed}.joblib"
+        # Initialize model
+        model = None
         for i in range(n_iter):
             print(f"\n -- Training Iteration {i+1}/{n_iter} (sampling {sample_frac * 100:.2f}% of data) --")
             

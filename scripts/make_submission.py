@@ -59,7 +59,7 @@ def main(args):
     X_te = get_features(test_df)
     ids = test_df['id']
     
-    for seed in n_seeds:
+    for seed in range(n_seeds):
         model_path = f"./model_{seed}.joblib"
         submission_path = f"./submission_{seed}.csv"
         print(f"Loading in model_{seed}...")
