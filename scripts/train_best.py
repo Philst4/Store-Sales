@@ -47,7 +47,6 @@ def main(args):
     experiment_config = args.experiment_config
     studies_uri = "sqlite:///./optuna_studies.db"
     manifest_path = "./data/clean/manifest.json"
-    model_path = "./model.joblib"
     
     # Load in study
     study = optuna.load_study(
@@ -83,56 +82,62 @@ def main(args):
     #### FOR SAMPLING WITH REPLACEMENT ####
     n_iter = args.n_iter
     sample_frac = args.sample_frac
-    for i in range(n_iter):
-        print(f"\n -- Training Iteration {i+1}/{n_iter} (sampling {sample_frac * 100:.2f}% of data) --")
-        
-        # Load in data using dask
-        ddf = load_and_merge_from_manifest(
-            manifest_path,
-            sample=sample_frac
-        )
-        print(f"Loading chunk into memory...")
-        df = ddf.compute()
-        for col in df.select_dtypes(include='object').columns:
-            df[col] = df[col].astype('category')
+    
+    
+    print(f"Training {args.n_seeds} models")
+    for seed in range(args.n_seeds):
+        print(f"\n -- SEED {seed} MODEL --")
+        model_path = f"./model_{seed}.joblib"
+        for i in range(n_iter):
+            print(f"\n -- Training Iteration {i+1}/{n_iter} (sampling {sample_frac * 100:.2f}% of data) --")
             
-        if len(df) == 0:
-            print("Empty chunk")
-        else:
-            # Prepare data
-            print(f"Splitting train/test...")
-            training_df = get_train(df)
-            X_tr = get_features(training_df)
-            y_tr = get_targets(training_df)
-            
-            print("Training model on chunk...")
-
-            if model is None:
-                # Set early stopping rounds to False
-                best_params['early_stopping_rounds'] = None
+            # Load in data using dask
+            ddf = load_and_merge_from_manifest(
+                manifest_path,
+                sample=sample_frac
+            )
+            print(f"Loading chunk into memory...")
+            df = ddf.compute()
+            for col in df.select_dtypes(include='object').columns:
+                df[col] = df[col].astype('category')
                 
-                # Create the pipeline model with the first chunk's schema
-                model = experiment_config['build_model'](
-                    X_tr, 
-                    best_params
-                )
-                model.fit(X_tr, y_tr)
+            if len(df) == 0:
+                print("Empty chunk")
             else:
-                # Access the XGBRegressor inside the pipeline
-                xgb_step = model.named_steps['model']
-                    
-                # Fit again with xgb_model to continue training
-                xgb_step.fit(
-                    model.named_steps['preprocessor'].transform(X_tr),
-                    y_tr,
-                    xgb_model=xgb_step.get_booster()
-                )
+                # Prepare data
+                print(f"Splitting train/test...")
+                training_df = get_train(df)
+                X_tr = get_features(training_df)
+                y_tr = get_targets(training_df)
                 
-            print(f"Loss on chunk: {root_mean_squared_error(model.predict(X_tr), y_tr)}")
-            
-    print("Done training!")
-    joblib.dump(model, model_path)
-    print(f"Model saved to '{model_path}'")
+                print("Training model on chunk...")
+
+                if model is None:
+                    # Set early stopping rounds to False
+                    best_params['early_stopping_rounds'] = None
+                    
+                    # Create the pipeline model with the first chunk's schema
+                    model = experiment_config['build_model'](
+                        X_tr, 
+                        best_params
+                    )
+                    model.fit(X_tr, y_tr)
+                else:
+                    # Access the XGBRegressor inside the pipeline
+                    xgb_step = model.named_steps['model']
+                        
+                    # Fit again with xgb_model to continue training
+                    xgb_step.fit(
+                        model.named_steps['preprocessor'].transform(X_tr),
+                        y_tr,
+                        xgb_model=xgb_step.get_booster()
+                    )
+                    
+                print(f"Loss on chunk: {root_mean_squared_error(model.predict(X_tr), y_tr)}")
+                
+        print(f"Done training model {seed}!")
+        joblib.dump(model, model_path)
+        print(f"Model {seed} saved to '{model_path}'")
     client.close()
     
 if __name__ == "__main__":
@@ -162,6 +167,7 @@ if __name__ == "__main__":
     parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")    
     parser.add_argument("--sample_frac", type=float, default=0.1, help="The fraction of samples to include in a batch.")
     parser.add_argument("--n_iter", type=int, default=10, help="The number of batches to load/train on.")
+    parser.add_argument("--n_seeds", type=int, default=1, help="Number of models to train (while varying seeds for sampling)")
     
     args = parser.parse_args()
     

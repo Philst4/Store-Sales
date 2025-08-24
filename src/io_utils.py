@@ -144,7 +144,8 @@ def load_and_merge_from_manifest(
     manifest_path, 
     sample=1.0,
     start_date=None,
-    end_date=None
+    end_date=None,
+    seed=42
     ):
     
     # Keep track of cat_meta_paths (for post-merge application)
@@ -171,7 +172,7 @@ def load_and_merge_from_manifest(
         end_date=end_date
     )
     
-    main_ddf = main_ddf.sample(frac=sample)
+    main_ddf = main_ddf.sample(frac=sample, random_state=seed)
     
     # Iterate merging secondary data
     for meta in tqdm(manifest["secondary_data"], desc="Locating 'secondary_data' chunks..."):

@@ -29,8 +29,7 @@ def main(args):
     experiment_config = args.experiment_config
     studies_uri = "sqlite:///./optuna_studies.db"
     manifest_path = "./data/clean/manifest.json"
-    model_path = "./model.joblib"
-    submission_path = "./submission.csv"
+    n_seeds = args.n_seeds
     
     # Load in study
     study = optuna.load_study(
@@ -60,32 +59,34 @@ def main(args):
     X_te = get_features(test_df)
     ids = test_df['id']
     
-    
-    print(f"Loading in model...")
-    model = joblib.load(model_path)
-    
-    # Make predictions
-    print("Making predictions...")
-    log_predictions = model.predict(X_te) 
-    predictions = np.expm1(log_predictions) # Un-log
-    
-    # Combine with id's, convert to pandas
-    print("Making submission...")
-    submission = pd.DataFrame({
-        'id' : ids,
-        'sales' : predictions
-    })
-    
-    # Save predictions
-    print(f"Saving submission to '{submission_path}'...")
-    submission.to_csv(submission_path, index=False)
+    for seed in n_seeds:
+        model_path = f"./model_{seed}.joblib"
+        submission_path = f"./submission_{seed}.csv"
+        print(f"Loading in model_{seed}...")
+        model = joblib.load(model_path)
+        
+        # Make predictions
+        print("Making predictions...")
+        log_predictions = model.predict(X_te) 
+        predictions = np.expm1(log_predictions) # Un-log
+        
+        # Combine with id's, convert to pandas
+        print("Making submission...")
+        submission = pd.DataFrame({
+            'id' : ids.astype(int),
+            'sales' : predictions.astype(float)
+        })
+        
+        # Save predictions
+        print(f"Saving submission to '{submission_path}'...")
+        submission.to_csv(submission_path, index=False)
     
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to make submission")
     
     parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")    
-    
+    parser.add_argument("--n_seeds", type=int, default=1, help="Model suffix range to make submissions for")
     
     args = parser.parse_args()
     main(args)
