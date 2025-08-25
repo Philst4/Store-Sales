@@ -93,7 +93,8 @@ def main(args):
             # Load in data using dask
             ddf = load_and_merge_from_manifest(
                 manifest_path,
-                sample=sample_frac
+                sample=sample_frac,
+                seed=(seed * n_iter) + i
             )
             print(f"Loading chunk into memory...")
             df = ddf.compute()
