@@ -3,7 +3,9 @@ dtypes.py
 tests/*
 todo.txt
 .DS_Store
-data/
+
+# Will include 1K rows of sample data from kaggle dataset
+data/clean/
 store_sales_samples.zip
 mlruns/
 optuna_studies.db
