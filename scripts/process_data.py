@@ -212,8 +212,6 @@ def main(args):
                     "merge_cols" : ["date"] + group_cols,
                 }
             )
-            
-            print(f" * {time() - start_time}")
     
     # (6) Save manifest file
     manifest_path = os.path.join(CLEAN_DATA_PATH, "manifest.json")
