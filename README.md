@@ -1,3 +1,8 @@
+(0) Setup
+- Hello
+- Goodbye
+- Nice
+
 (1) python scripts/process_data.py
 
 (2) python scripts/tune_model.py
