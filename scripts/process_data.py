@@ -29,11 +29,6 @@ from src.data_processing import (
     assign_ascending_dates
 )
 
-def check_args(args):
-    assert args.run_type in ("test", "production"), f"Unkown run_type '{args.run_type}'"
-    assert args.compute_mode in ("local", "cloud"), f"Unknown compute_mode '{args.compute_mode}'"
-    assert args.storage_mode in ("local", "cloud"), f"Unknown storage_mode '{args.storage_mode}'"
-
 # Main function
 def main(args):
     """
@@ -56,19 +51,17 @@ def main(args):
     quantiles = [0.1, 1, 5, 25, 50, 75, 95, 99, 99.9]
     quantiles = ['q' + str(quantile) for quantile in quantiles]
     
-    # Check args
-    check_args(args)
-    
     # Load config    
-    config = load_config()
+    config = load_config(args.config_path)
     
     # Get data paths
-    RAW_DATA_PATH, CLEAN_DATA_PATH = get_data_paths(args.storage_mode, config)
+    RAW_DATA_PATH = config['raw_data_path'] # should exist and have data
+    CLEAN_DATA_PATH = config['clean_data_path']
+    
     if not os.path.exists(CLEAN_DATA_PATH):
         os.makedirs(CLEAN_DATA_PATH)
     
     # Load in data
-    # TODO CHANGE LOGIC HERE... LOAD IN EACH DATASET SEPARATELY
     
     # Keep track of a manifest file
     manifest = {
@@ -223,26 +216,12 @@ def main(args):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Data Processing Script")
-   
-    parser.add_argument(
-        "--run_type", 
-        type=str, 
-        default="test", 
-        help="Type of run (test or production)"
-    ) 
     
     parser.add_argument(
-        "--compute_mode",
+        "--config_path",
         type=str,
-        default="local",
-        help="Where/how script is running (local or cloud)"
-    )
-    
-    parser.add_argument(
-        "--storage_mode",
-        type=str,
-        default="local",
-        help="Where things are stored relative to script (local or cloud)"
+        default="./config.yaml",
+        help="Path of config file to use"
     )
     
     parser.add_argument(

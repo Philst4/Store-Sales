@@ -17,6 +17,7 @@ from dask.distributed import Client, LocalCluster
 
 
 from src.io_utils import (
+    load_config,
     load_and_merge_from_manifest,
     load_experiment_config
 )
@@ -40,24 +41,29 @@ def configure_client():
     return Client(cluster)
 
 def main(args):
+    
+    # Deal with config
+    config = load_config(args.config_path)
+    CLEAN_DATA_PATH = config['clean_data_path']
+    OPTUNA_STUDIES_URI = config['optuna_studies_uri']
+    MANIFEST_PATH = os.path.join(CLEAN_DATA_PATH, "manifest.json")
+    
     rng = np.random.default_rng(seed=42)
     
-    # From args/config
-    study_name = "xgb"
-    experiment_config = args.experiment_config
-    studies_uri = "sqlite:///./optuna_studies.db"
-    manifest_path = "./data/clean/manifest.json"
+    # Load experiment_config
+    experiment_config = load_experiment_config(
+        args.experiment_config_path
+    )
+    study_name = experiment_config['study_name']
+    
     
     # Load in study
     study = optuna.load_study(
         study_name=study_name,
-        storage=studies_uri
+        storage=OPTUNA_STUDIES_URI
     )
 
-    # Extract best trial and corresponding params
-    experiment_config = load_experiment_config(
-        experiment_config
-    )
+    # Extract best trial and corresponding params experiment config
     best_trial = study.best_trial
     best_params = best_trial.params
     best_params = experiment_config['add_constant_hyperparams'](
@@ -84,7 +90,7 @@ def main(args):
     print(f"Training {args.n_seeds} models")
     for seed in range(args.n_seeds):
         print(f"\n -- SEED {seed} MODEL --")
-        model_path = f"./model_{seed}.joblib"
+        model_path = f"./{study_name}_model_{seed}.joblib"
         # Initialize model
         model = None
         for i in range(n_iter):
@@ -92,7 +98,7 @@ def main(args):
             
             # Load in data using dask
             ddf = load_and_merge_from_manifest(
-                manifest_path,
+                MANIFEST_PATH,
                 sample=sample_frac,
                 seed=(seed * n_iter) + i
             )
@@ -144,24 +150,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training Script Using Best Hyperparameters")
     
     parser.add_argument(
-        "--run_type", 
-        type=str, 
-        default="test", 
-        help="Type of run (test or production)"
-    ) 
-    
-    parser.add_argument(
-        "--compute_mode",
+        "--config_path",
         type=str,
-        default="local",
-        help="Where/how script is running (local or cloud)"
-    )
-    
-    parser.add_argument(
-        "--storage_mode",
-        type=str,
-        default="local",
-        help="Where things are stored relative to script (local or cloud)"
+        default="./config.yaml",
+        help="Path of config file to use"
     )
     
     parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")    

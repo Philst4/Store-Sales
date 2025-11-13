@@ -98,7 +98,7 @@ def make_objective(
     build_model,
     make_hyperparam_space,
     loss_fn=root_mean_squared_error, 
-    experiment_name="N/A",
+    study_name="N/A",
     loss_fn_name="RMSE",
     target_name="log_sales",
     n_backtests=4,
@@ -109,7 +109,7 @@ def make_objective(
     Creates an optuna objective function to use for tuning.
     
     Args:
-        experiment_name : The name of the experiment
+        study_name : The name of the experiment/study
         df : The data to use to train/evaluate
         build_model : function for initializing model with hyperparams
         make_hyperparam_space : function for initializing hyperparam space
@@ -135,9 +135,9 @@ def make_objective(
         
         # From experiment config file
         hyperparams = make_hyperparam_space(trial)
-        with mlflow.start_run(run_name=f"{experiment_name} Trial {trial.number}", nested=True):
-            mlflow.set_tag("model_type", experiment_name)
-            mlflow.log_param("model", experiment_name)
+        with mlflow.start_run(run_name=f"{study_name} Trial {trial.number}", nested=True):
+            mlflow.set_tag("model_type", study_name)
+            mlflow.log_param("model", study_name)
             mlflow.log_params(hyperparams)
             losses = backtest_hyperparams(hyperparams)
             loss = np.mean(losses)
@@ -150,7 +150,7 @@ def run_experiment(
     objective,
     n_trials,
     study_path,
-    experiment_name="N/A"
+    study_name="N/A"
 ):
     """
     Runs model tuning experiment.
@@ -162,93 +162,13 @@ def run_experiment(
         experiment_name: the name of the experiment/study
     """
     
-    mlflow.set_experiment(experiment_name)
+    mlflow.set_experiment(study_name)
     study = optuna.create_study(
         direction='minimize',
         storage=study_path,
-        study_name=experiment_name,
+        study_name=study_name,
         load_if_exists=True
     )
     study.optimize(objective, n_trials=n_trials)
     print("\nBest trial:", study.best_trial)
-
-#### NEW ####
-if False:
-    def _run_backtest_worker(df, build_model, loss_fn, n_backtests, valset_size, n_jobs, hyperparams, out_q):
-        """
-        Top-level worker so it's picklable under 'spawn'. Computes loss and
-        sends a dict back via a Queue.
-        """
-        try:
-            losses = _backtest(
-                df,
-                build_model,
-                hyperparams,
-                loss_fn,
-                n_backtests,
-                valset_size,
-                n_jobs
-            )
-            out_q.put({"ok": True, "loss": float(np.mean(losses))})
-        except Exception as e:
-            # Send the error back so parent can log why it pruned
-            out_q.put({"ok": False, "error": repr(e)})
-
-    def make_objective(
-        df,
-        build_model,
-        make_hyperparam_space,
-        loss_fn=root_mean_squared_error, 
-        experiment_name="N/A",
-        loss_fn_name="RMSE",
-        target_name="log_sales",
-        n_backtests=4,
-        valset_size=92,
-        n_jobs=1,
-        max_time_per_trial=300
-    ):
-        def objective(trial):
-            hyperparams = make_hyperparam_space(trial)
-
-            with mlflow.start_run(run_name=f"{experiment_name} Trial {trial.number}", nested=True):
-                mlflow.set_tag("model_type", experiment_name)
-                mlflow.log_param("model", experiment_name)
-                mlflow.log_params(hyperparams)
-
-                q = mp.Queue()
-                p = mp.Process(
-                    target=_run_backtest_worker,
-                    args=(df, build_model, loss_fn, n_backtests, valset_size, n_jobs, hyperparams, q),
-                )
-                p.start()
-
-                try:
-                    # Wait for a result from the worker, up to max_time_per_trial
-                    result = q.get(timeout=max_time_per_trial)
-                except Exception:
-                    # Timed out or queue error
-                    if p.is_alive():
-                        p.terminate()
-                    p.join()
-                    mlflow.log_param("pruned_reason", "timeout")
-                    raise optuna.TrialPruned()
-
-                # Ensure process is cleaned up
-                p.join()
-
-                # Log exit code for extra visibility
-                try:
-                    mlflow.log_param("mp_exitcode", p.exitcode)
-                except Exception:
-                    pass
-
-                if result.get("ok"):
-                    loss = result["loss"]
-                    mlflow.log_metric(f"{loss_fn_name} of {target_name}", loss)
-                    return loss
-                else:
-                    mlflow.log_param("pruned_reason", f"backtest_failed: {result.get('error', 'unknown')}")
-                    raise optuna.TrialPruned()
-
-        return objective
     

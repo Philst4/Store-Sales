@@ -1,16 +1,6 @@
-run_mode:
-  test: ""
-  production: ""
+raw_data_path: "./data/raw/"
+clean_data_path: "./data/clean/"
+optuna_studies_uri: "sqlite:///./optuna_studies.db"
+models_path: "./models/"
+submissions_path: "./submissions/"
 
-
-storage_mode:
-  local: 
-    data:
-      raw: "./data/raw/"
-      clean: "./data/clean/"
-    studies_uri: "sqlite:///./optuna_studies.db"
-  cloud: 
-    data:
-      raw: ""
-      clean: ""
-    studies_uri: ""

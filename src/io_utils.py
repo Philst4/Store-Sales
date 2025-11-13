@@ -16,8 +16,8 @@ import warnings
 warnings.filterwarnings("ignore", message=".*Merging dataframes with merge column data type mismatches.*")
 
 
-def load_config():
-    with open("config.yaml", "r") as f:
+def load_config(config_path):
+    with open(config_path, "r") as f:
         return yaml.safe_load(f)
     
 def get_data_paths(storage_mode, config):

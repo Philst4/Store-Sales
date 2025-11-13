@@ -16,4 +16,6 @@ dependencies:
   - pytorch
   - dask
   - distributed
+  - matplotlib
+  - seaborn
 prefix: /opt/anaconda3/envs/store-sales

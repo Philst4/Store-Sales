@@ -6,10 +6,8 @@ import argparse
 # Internal imports
 from src.io_utils import (
     load_config, 
-    get_data_paths,
     load_and_merge_from_manifest,
     load_experiment_config,
-    get_studies_uri
 )
 
 from src.modeling import get_train
@@ -28,17 +26,17 @@ def main(args):
     """
     
     # Load in config
-    config = load_config()
+    config = load_config(args.config_path)
     
     # Get data path, study_uri
-    _, CLEAN_DATA_PATH = get_data_paths(args.storage_mode, config)
-    STUDIES_URI = get_studies_uri(args.storage_mode, config)
+    CLEAN_DATA_PATH = config['clean_data_path']
+    STUDIES_URI = config['optuna_studies_uri']
     
     
     # Load in data, split off training data (as pandas)
     print(f"Loading training data...")
     ddf = load_and_merge_from_manifest(
-        "./data/clean/manifest.json", 
+        os.path.join(CLEAN_DATA_PATH, 'manifest.json'),
         sample=args.sample
     )
     
@@ -68,31 +66,17 @@ def main(args):
         objective,
         args.n_trials,
         STUDIES_URI,
-        experiment_config['experiment_name']
+        experiment_config['study_name']
     )
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Model Tuning Script")
     
     parser.add_argument(
-        "--run_type", 
-        type=str, 
-        default="test", 
-        help="Type of run (test or production)"
-    ) 
-    
-    parser.add_argument(
-        "--compute_mode",
+        "--config_path",
         type=str,
-        default="local",
-        help="Where/how script is running (local or cloud)"
-    )
-    
-    parser.add_argument(
-        "--storage_mode",
-        type=str,
-        default="local",
-        help="Where things are stored relative to script (local or cloud)"
+        default="./config.yaml",
+        help="Path of config file to use"
     )
     
     parser.add_argument("--sample", type=float, default=1.0, help="Fraction of training samples to take from training data.")
