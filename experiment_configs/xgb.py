@@ -12,6 +12,7 @@ import torch # for device checking
 
 # Definitions
 study_name = "xgb"
+model_class = str(XGBRegressor)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu" # Check for GPU
 
 def build_model(X_sample, hyperparams):

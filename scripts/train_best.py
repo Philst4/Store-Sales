@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 
 import xgboost as xgb
+from xgboost import XGBRegressor
 
 import dask.dataframe as dd
 from dask.distributed import Client, LocalCluster
@@ -47,6 +48,9 @@ def main(args):
     CLEAN_DATA_PATH = config['clean_data_path']
     OPTUNA_STUDIES_URI = config['optuna_studies_uri']
     MANIFEST_PATH = os.path.join(CLEAN_DATA_PATH, "manifest.json")
+    MODELS_PATH = config['models_path']
+    if not os.path.exists(MODELS_PATH):
+        os.mkdir(MODELS_PATH)
     
     rng = np.random.default_rng(seed=42)
     
@@ -54,6 +58,7 @@ def main(args):
     experiment_config = load_experiment_config(
         args.experiment_config_path
     )
+    
     study_name = experiment_config['study_name']
     
     
@@ -86,11 +91,15 @@ def main(args):
     n_iter = args.n_iter
     sample_frac = args.sample_frac
     
+    # Only implemented for xgb models right now
+    if experiment_config['model_class'] != str(XGBRegressor):
+        print(f"Training not yet implemented for non-XGBRegressor models")
     
     print(f"Training {args.n_seeds} models")
     for seed in range(args.n_seeds):
         print(f"\n -- SEED {seed} MODEL --")
-        model_path = f"./{study_name}_model_{seed}.joblib"
+        model_path = f"{MODELS_PATH}{study_name}_model_{seed}.joblib"
+        
         # Initialize model
         model = None
         for i in range(n_iter):
@@ -156,7 +165,7 @@ if __name__ == "__main__":
         help="Path of config file to use"
     )
     
-    parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")    
+    parser.add_argument("--experiment_config_path", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb.py)")    
     parser.add_argument("--sample_frac", type=float, default=0.1, help="The fraction of samples to include in a batch.")
     parser.add_argument("--n_iter", type=int, default=10, help="The number of batches to load/train on.")
     parser.add_argument("--n_seeds", type=int, default=1, help="Number of models to train (while varying seeds for sampling)")

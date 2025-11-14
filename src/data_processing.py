@@ -196,112 +196,7 @@ def process_oil(
 def process_holidays_events(holidays_events):
     return _fe_holidays_events(_clean_holidays_events(holidays_events))
 
-def compute_rolling_stats(
-    main, 
-    group_cols, 
-    rolling_cols, 
-    lag, 
-    window, 
-    quantiles=[], 
-    suffix="",
-    show_progress=False
-):
-    """
-    Compute lagged rolling stats on columns in `rolling_cols` in `main`, grouped by `group_cols`.
-    If group_cols is None or empty, computes globally.
-    
-    Assumes 'date' is index.
-    """
-    
-    # need to be a pd.dataframe for now
-    if isinstance(main, dd.DataFrame):
-        main = main.compute()
-    
-    # Basic statistics we always compute
-    stats = ['mean', 'std', 'min', 'max']
-    
-    # Add quantile calculations if specified
-    if quantiles:
-        # Convert quantiles to fractions (e.g., 90 -> 0.9)
-        quantile_stats = {f'q{q}': (q/100.0) for q in quantiles}
-    else:
-        quantile_stats = {}
-
-    # If no group, treat whole DataFrame
-    if not group_cols:
-        daily_sum = (
-            main
-            .groupby('date')[rolling_cols]
-            .sum()
-            .reset_index()
-            .set_index('date')
-        )
-        
-        # Compute basic stats for all columns at once
-        rolled = daily_sum[rolling_cols].rolling(f"{window}D", min_periods=1).agg(stats)
-        
-        # Compute quantiles if specified
-        if quantiles:
-            for q_name, q_value in quantile_stats.items():
-                for col in rolling_cols:
-                    rolled["_".join([col, q_name])] = daily_sum[col].rolling(f"{window}D", min_periods=1).quantile(q_value)
-
-    # Grouped version
-    else:
-        daily_sum = (
-            main
-            .groupby(['date'] + group_cols, observed=False)[rolling_cols]
-            .sum()
-            .reset_index()
-            .set_index('date')
-        )
-        
-        # Compute basic stats for all columns at once
-        rolled = (
-            daily_sum
-            .groupby(group_cols, observed=False)[rolling_cols]
-            .rolling(f"{window}D", min_periods=1)
-            .agg(stats)
-        )
-        
-        # Compute quantiles if specified
-        if quantiles:
-            for q_name, q_value in quantile_stats.items():
-                for col in rolling_cols:
-                    rolled["_".join([col, q_name])] = (
-                        daily_sum
-                        .groupby(group_cols, observed=False)[col]
-                        .rolling(f"{window}D", min_periods=1)
-                        .quantile(q_value)
-                    )
-
-    # Flatten MultiIndex columns and create proper names
-    new_columns = []
-    
-    # Handle basic stats
-    for col in rolling_cols:
-        for stat in stats:
-            new_columns.append(f"{col}_lag{lag}_window{window}_{stat}{suffix}")
-    
-    # Handle quantiles
-    if quantiles:
-        for col in rolling_cols:
-            for q_name in quantile_stats.keys():
-                q_num = q_name[1:]  # Remove 'q' prefix
-                new_columns.append(f"{col}_lag{lag}_window{window}_q{q_num}{suffix}")
-    
-    # Reset index, rename columns
-    rolled.columns = ['_'.join(col).strip() for col in rolled.columns]
-    rolled.columns = new_columns
-    rolled = rolled.reset_index()
-
-    # Shift dates back by 'lag'
-    rolled['date'] = pd.to_datetime(rolled['date'], format="%Y-%m-%d")
-    rolled['date'] = rolled['date'] + pd.DateOffset(days=lag)
-    
-    return dd.from_pandas(rolled, npartitions=1)
-
-#### NEW COMPUTE ROLLING STATS ####
+#### OLD COMPUTE ROLLING STATS ####
 
 def calc_daily_stats(
     df, 
@@ -390,6 +285,125 @@ def compute_rolling_stats(
     )
     
     return rolled_stats
+
+#### NEW COMPUTE ROLLING STATS ####
+
+def calc_daily_sales_totals(
+    df, 
+    cols_to_roll, 
+    group_cols
+):
+    """
+    Aggregates total sales and log of total sales wrt given group and date.
+    """
+    
+    df = df.sort_values(by=group_cols + ['date'])
+
+    sales_totals = (
+        df
+        .groupby(['date'] + group_cols, observed=False)[cols_to_roll]
+        .sum()
+        .fillna(0.)
+        .reset_index()
+    )
+
+    # Add log of sales totals
+    sales_totals['log_sales'] = np.log1p(sales_totals['sales'])
+
+    return sales_totals
+
+def roll_daily_sales_totals(
+    daily_sales_totals,
+    group_cols,
+    agg_fns,
+    quantiles,
+    lag,
+    window,
+    suffix
+):
+    daily_sales_totals = (
+        daily_sales_totals
+        .sort_values(by=group_cols + ['date'])
+        .set_index('date')
+    )
+    
+    # Columns to aggregate
+    value_cols = [c for c in daily_sales_totals.columns if c not in group_cols + ['date']]
+    
+    if group_cols:
+        
+        # Aggregate
+        agg_stats = (
+            daily_sales_totals
+            .groupby(group_cols, group_keys=False, observed=False)
+            .rolling(window=window, min_periods=1)[value_cols]
+            .agg(agg_fns)
+            .reset_index(drop=False)
+        )
+        
+    else:
+        # Aggregate
+        agg_stats = (
+            daily_sales_totals
+            .rolling(window=window, min_periods=1)[value_cols]
+            .agg(agg_fns)
+            .reset_index(drop=False)
+        )
+    
+    # Flatten MultiIndex columns
+    agg_stats.columns = [
+        f"{col[0]}_{col[1]}" if col[1] != "" else col[0]
+        for col in agg_stats.columns
+    ]
+        
+    # Shift values
+    old_groups = agg_stats[['date'] + group_cols].copy()
+    agg_stats['date'] += pd.Timedelta(days=lag)
+    agg_stats = pd.merge(
+        old_groups,
+        agg_stats,
+        on=list(old_groups.columns),
+        how='left'
+    )
+    fill_cols = [col for col in list(agg_stats.columns) if col not in ['date'] + group_cols]
+    agg_stats[fill_cols] = agg_stats[fill_cols].fillna(0.)
+        
+    # Rename rolling cols to have lag and window info
+    new_cols = [col + suffix if col not in ['date'] + group_cols else col for col in list(agg_stats.columns)]
+    agg_stats.columns = new_cols
+    
+    return agg_stats
+        
+
+def compute_rolling_stats(
+        df,
+        cols_to_roll, 
+        group_cols, 
+        agg_fns, 
+        quantiles,
+        lag, 
+        window,
+        suffix,
+    ):
+
+    daily_sales_totals = calc_daily_sales_totals(
+        df, 
+        cols_to_roll, 
+        group_cols
+    )
+
+    rolled_stats = roll_daily_sales_totals(
+        daily_sales_totals,
+        group_cols, 
+        agg_fns,
+        quantiles,
+        lag, 
+        window,
+        suffix
+    )
+    
+    return rolled_stats
+
 
 #### DATA-MERGING LOGIC ####
 def _fe_merge2(merge2, cols):

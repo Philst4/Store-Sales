@@ -43,11 +43,13 @@ def main(args):
     print(f"Loading training data into memory...")
     train_df = get_train(ddf).compute()
     
-    # Load in experiment configuration
+    # Load in experiment configuration 
+    # Remove unneeded to pass to 'make_objective'
     experiment_config = load_experiment_config(
-        args.experiment_config
+        args.experiment_config_path
     )
     del experiment_config['add_constant_hyperparams']
+    del experiment_config['model_class']
     
     # Figure out n_jobs
     n_jobs = min(args.n_jobs, os.cpu_count())
@@ -80,7 +82,7 @@ if __name__ == "__main__":
     )
     
     parser.add_argument("--sample", type=float, default=1.0, help="Fraction of training samples to take from training data.")
-    parser.add_argument("--experiment_config", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb)")
+    parser.add_argument("--experiment_config_path", type=str, default="experiment_configs.xgb", help="Python module path to experiment config (e.g. experiment_configs.xgb)")
     parser.add_argument("--n_trials", type=int, default=5, help="Number of study trials to run (e.g. 5)")
     parser.add_argument("--n_jobs", type=int, default=1, help="Number of jobs to run in parallel (e.g. 2)")
     parser.add_argument("--n_backtests", type=int, default=8, help="Number of backtests to run for each trial")
