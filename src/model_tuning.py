@@ -71,7 +71,7 @@ def _backtest(
                 df, build_model, hyperparams, loss_fn,
                 valset_size, i, last_date
             )
-            print(f" * Fold {count} of {n_backtests} complete", flush=True)
+            print(f" * Fold {count} of {n_backtests} complete (loss: {loss:.3f})", flush=True)
             losses.append(loss)
     else:
         # Parallel execution
@@ -90,7 +90,9 @@ def _backtest(
             )
             for i in fold_indices
         )
-        
+    
+    print(f" * MEAN LOSS ACROSS FOLDS: {np.mean(losses):.3f}")
+    
     return losses
 
 def make_objective(

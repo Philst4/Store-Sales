@@ -288,6 +288,33 @@ def compute_rolling_stats(
 
 #### NEW COMPUTE ROLLING STATS ####
 
+def get_agg_fns(supported_agg_fns, quantiles):
+    """
+    Gives list aggregation functions from supported list and quantiles.
+    List of aggregation functions used for rolling statistics.
+    """
+    # Define quantile names
+    quantile_names = ['q' + str(quantile) for quantile in quantiles]
+    
+    # Define quantile functions
+    quantile_fns = [
+        (f"{q}", lambda x, q=float(q[1:]) / 100: np.quantile(x, q))
+        for q in quantile_names
+    ]
+
+    # Make list of agg functions
+    agg_fns = []
+
+    # Add standard stats (strings or callables)
+    agg_fns.extend(supported_agg_fns)
+
+    # Add named quantiles
+    for name, fn in quantile_fns:
+        fn.__name__ = name  # give the lambda a real name
+        agg_fns.append(fn)
+
+    return agg_fns
+
 def calc_daily_sales_totals(
     df, 
     cols_to_roll, 
@@ -316,7 +343,6 @@ def roll_daily_sales_totals(
     daily_sales_totals,
     group_cols,
     agg_fns,
-    quantiles,
     lag,
     window,
     suffix
@@ -380,7 +406,6 @@ def compute_rolling_stats(
         cols_to_roll, 
         group_cols, 
         agg_fns, 
-        quantiles,
         lag, 
         window,
         suffix,
@@ -396,7 +421,6 @@ def compute_rolling_stats(
         daily_sales_totals,
         group_cols, 
         agg_fns,
-        quantiles,
         lag, 
         window,
         suffix

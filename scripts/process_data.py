@@ -24,6 +24,7 @@ from src.data_processing import (
     process_stores,
     process_oil,
     process_holidays_events,
+    get_agg_fns,
     compute_rolling_stats,
     assign_ascending_dates
 )
@@ -42,13 +43,17 @@ def main(args):
     # Initialize Dask client
     client = Client()
     
-    # WILL BE ARGS
-    windows_from_0 = [1, 2, 4, 7, 14]
+    # WILL BE ARGS for aggregation/rolling stuff later
+    # For oil
+    windows_from_0 = [1, 2, 4, 7, 14] 
+    
+    # For sales
     lag = 16
     windows_from_lag = [1, 7, 28, 91, 365]
-    agg_fns = ['mean', 'std', 'min', 'max']
-    quantiles = [0.1, 1, 5, 25, 50, 75, 95, 99, 99.9]
-    quantiles = ['q' + str(quantile) for quantile in quantiles]
+    supported_agg_fns = ['mean', 'std', 'min', 'max']
+    #quantiles = [0.1, 1, 5, 25, 50, 75, 95, 99, 99.9]
+    quantiles = [5, 25, 50, 75, 95]
+    agg_fns = get_agg_fns(supported_agg_fns, quantiles)
     
     # Load config    
     config = load_config(args.config_path)
@@ -184,7 +189,6 @@ def main(args):
                 cols_to_roll=['sales'],
                 group_cols=group_cols,
                 agg_fns=agg_fns,
-                quantiles=quantiles,
                 lag=lag,
                 window=window,
                 suffix=suffix,
