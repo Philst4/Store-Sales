@@ -15,3 +15,4 @@ submission.csv
 scripts/load_from_manifest.py
 *.joblib
 scratch.py
+submissions/
