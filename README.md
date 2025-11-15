@@ -5,30 +5,17 @@ This repository contains a fully reproducible ML pipeline for the **Kaggle Store
 
 The project can be run via:
 
-<<<<<<< HEAD
-# Setting project up locally
-- Clone project (maybe download git?)
-- Navigate to project root directory in terminal
-- Install conda before if necessary
-- Make environment called 'store-sales' with environment.yml; activate it
-=======
 1. **Google Colab** (easiest)
 2. **Locally via terminal scripts**
 3. **Locally via Jupyter notebook**
->>>>>>> 73b7680990bf49b144b49d08050a9f5ab74f6729
 
 ---
 
 ## 🚀 Project Overview
 
-<<<<<<< HEAD
-# Running project from terminal (locally)
-(1) python scripts/process_data.py
-=======
 This pipeline covers the full workflow:
 
 **Raw data → Feature engineering → Hyperparameter tuning → Model training → Submission file generation**
->>>>>>> 73b7680990bf49b144b49d08050a9f5ab74f6729
 
 Key components:
 
@@ -164,13 +151,3 @@ optuna_studies.db
 - Dataset comes from **Kaggle Store Sales Forecasting** competition.  
 - Data folders are excluded via `.gitignore`; the scripts/notebooks download or generate necessary files automatically.
 
-<<<<<<< HEAD
-(4) python scripts/make_submission.py
-
-# Running project using local notebook 'pipeline_local.ipynb'
-Run cells in notebook
-
-# Running project using Colab notebook 'pipeline_colab.ipynb'
-Run cells in notebook
-=======
->>>>>>> 73b7680990bf49b144b49d08050a9f5ab74f6729
