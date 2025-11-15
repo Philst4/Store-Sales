@@ -6,7 +6,7 @@
 
 
 
-PART 1: Setup
+# Setting project up locally
 - Clone project (maybe download git?)
 - Navigate to project root directory in terminal
 - Install conda before if necessary
@@ -14,9 +14,7 @@ PART 1: Setup
 
 
 
-PART 2: Running project
-
-Can either run scripts from command line
+# Running project from terminal (locally)
 (1) python scripts/process_data.py
 
 (2) python scripts/tune_model.py
@@ -24,3 +22,9 @@ Can either run scripts from command line
 (3) python scripts/train_best.py
 
 (4) python scripts/make_submission.py
+
+# Running project using local notebook 'pipeline_local.ipynb'
+Run cells in notebook
+
+# Running project using Colab notebook 'pipeline_colab.ipynb'
+Run cells in notebook
